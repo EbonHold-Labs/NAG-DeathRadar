@@ -12,13 +12,15 @@ deaths.py and store_guard.py are read from <rev> with `git show` into a temporar
 there. deaths.py imports pysqlite3, a drop-in build of the stdlib sqlite3; where it is not installed (python -I
 leaves the user site out) the stdlib module stands in for it.
 
-What is added AFTER to_lua, because the server does not emit it yet:
+What is added AFTER to_lua (the server's own cellBase line, emitted since Tools #1124, is dropped first and
+stated per fixture):
 - nagdeath_base0.lua: the fields of relay 3460 (published, next, rows, contributors), the cell-base amendment
   (cellBase = 0, the server's own 0..99 cells) and one field no reader knows (an unknown field must be ignored).
 - nagdeath_base1.lua: the same aggregate with every cell moved to 1..100 and no cellBase (the shape the
   prototype read), so the two fixtures must land on the same cells.
 """
 import argparse
+import re
 import copy
 import importlib
 import random
@@ -103,7 +105,14 @@ def aggregate(D):
     return agg, rows_in
 
 
+def strip_cell_base(lua: str) -> str:
+    """to_lua writes cellBase = 0 itself since Tools #1124; this recipe states the base per fixture, so the server's
+    own line is dropped first (works on revisions with and without it)."""
+    return "".join(l for l in lua.splitlines(True) if not re.fullmatch(r"cellBase = \d+,\n?", l))
+
+
 def add_fields(lua: str, fields: str) -> str:
+    lua = strip_cell_base(lua)
     head, sep, tail = lua.partition("v = 1,\n")
     assert sep, "to_lua's output no longer starts with v = 1"
     return head + sep + fields + tail
@@ -121,7 +130,7 @@ def main():
         agg1 = copy.deepcopy(agg)
         for e in agg1["maps"].values():
             e["cells"] = [[x + 1, y + 1, q] for x, y, q in e["cells"]]
-        lua1 = D.to_lua(agg1)
+        lua1 = strip_cell_base(D.to_lua(agg1))
     note = ("-- Test fixture: SYNTHETIC deaths through NextActionGuide-Tools %s AnalyticsServer/deaths.py\n"
             "-- (validate_row, record, build, to_lua). Written by tools/make_fixtures.py; do not edit by hand.\n" % sha[:12])
     base0 = add_fields(lua0, "cellBase = 0,\npublished = %d,\nnext = %d,\nrows = %d,\ncontributors = 5,\n"
