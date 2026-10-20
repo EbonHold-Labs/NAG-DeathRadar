@@ -60,12 +60,6 @@ function ns.CappedBuckets(mapData, n, cap)
     return b, n, count
 end
 
---- Yellow (few deaths) -> red (the map's worst spot).
-function ns.Ramp(q)
-    local t = math.min(q, 100) / 100
-    return 1, 1 - t, 0, 0.25 + 0.45 * t
-end
-
 local layer, label
 local pool, used = {}, 0
 local lastMap, lastN
@@ -127,19 +121,24 @@ function O.Redraw(force)
     say(nil)
     local buckets, drawn = ns.CappedBuckets(md, n, O.CAP)
     local cw, ch = layer:GetWidth() / drawn, layer:GetHeight() / drawn
+    -- The radar's own bands (ns.Color): a square that holds a hot cell (the max is kept) is the same red the
+    -- radar points at, at every zoom; below the low band nothing is drawn, as on the radar.
     for bx, col in pairs(buckets) do
         for by, q in pairs(col) do
-            used = used + 1
-            local t = pool[used]
-            if not t then
-                t = layer:CreateTexture(nil, "ARTWORK")
-                pool[used] = t
+            local r, g, b, a = ns.Color(q / 100, s)
+            if r then
+                used = used + 1
+                local t = pool[used]
+                if not t then
+                    t = layer:CreateTexture(nil, "ARTWORK")
+                    pool[used] = t
+                end
+                t:SetColorTexture(r, g, b, a)
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", layer, "TOPLEFT", (bx - 1) * cw, -(by - 1) * ch)
+                t:SetSize(cw, ch)
+                t:Show()
             end
-            t:SetColorTexture(ns.Ramp(q))
-            t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", layer, "TOPLEFT", (bx - 1) * cw, -(by - 1) * ch)
-            t:SetSize(cw, ch)
-            t:Show()
         end
     end
 end

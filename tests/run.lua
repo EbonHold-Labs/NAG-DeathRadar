@@ -275,15 +275,13 @@ test("rebucket, zoom and the texture cap", function()
     eq(n, 25, "never coarser than 25"); eq(count, 625)
 end)
 
-test("colours: thresholds to light blue, yellow, red; ramp yellow -> red", function()
+test("colours: thresholds to light blue, yellow, red", function()
     local ns = boot(false)
     local s = ns.InitSettings(nil)
     eq(ns.Color(0.01, s), nil, "below low")
     local r, g, b = ns.Color(0.05, s); eq(r, 0); eq(g, 0.8); eq(b, 1)
     r, g, b = ns.Color(0.1, s); eq(r, 1); eq(g, 1); eq(b, 0)
     r, g, b = ns.Color(0.25, s); eq(r, 1); eq(g, 0); eq(b, 0)
-    r, g = ns.Ramp(1); eq(r, 1); near(g, 0.99, "low q yellow")
-    r, g = ns.Ramp(100); eq(r, 1); eq(g, 0, "high q red")
 end)
 
 test("slash parser", function()
@@ -413,6 +411,101 @@ local function bootRadar(opts)
     S.worldBounds[DUROTAR] = { 0, 0, -3000, -3000 }
     return ns
 end
+
+--- The overlay square at bucket (bx, by) of n per side on the stub's 1000 x 700 canvas, or nil.
+local function squareAt(bx, by, n)
+    local cw, ch = 1000 / n, 700 / n
+    for _, o in ipairs(S.objects) do
+        local p = o._point
+        if o._color and o._shown and p and p[1] == "TOPLEFT" and math.abs(p[4] - (bx - 1) * cw) < 1e-6
+            and math.abs(p[5] + (by - 1) * ch) < 1e-6 then
+            return o
+        end
+    end
+end
+
+local function isRed(c) return c and c[1] == 1 and c[2] == 0 and c[3] == 0 end
+local function isYellow(c) return c and c[1] == 1 and c[2] == 1 and c[3] == 0 end
+
+-- One q-32 cell at (45, 28) among q-5 cells, as Rakizi's Barrens test showed: hot for the radar (0.32 >= 0.25).
+local function barrensLike()
+    local md = {}
+    for x = 30, 60 do
+        md[x] = {}
+        for y = 15, 40 do md[x][y] = 5 end
+    end
+    md[45][28] = 32
+    return { v = 1, cellBase = 0, map = { [ELWYNN] = md } }
+end
+
+test("overlay: a hot cell reads red on the map at every zoom, where the radar points", function()
+    local ns = boot(barrensLike())
+    S.worldBounds[ELWYNN] = ELWYNN_BOUNDS
+    standAt(ELWYNN, 52, 30, 0)
+    eq(ns.Radar.Paint(), "ok")
+    local p = ns.Radar.Pointer()
+    assert(p.tex:IsShown(), "the radar points at the hot cell")
+    -- The pointer's vector is the hot cell's: (45, 28) from the player at (52, 30).
+    local dn, dw = ns.Radar.CellVector(ns.CellCentre(52), ns.CellCentre(30), 45, 28, W_ELWYNN, H_ELWYNN)
+    near(p.dx, dn, "north", 1e-6); near(p.dy, dw, "west", 1e-6)
+    S.mapID = ELWYNN
+    for _, z in ipairs({ { 0, 25 }, { 0.5, 50 }, { 1, 100 } }) do
+        S.zoom = z[1]
+        WorldMapFrame:OnCanvasScaleChanged()
+        local n = z[2]
+        local sq = squareAt(math.floor(45 * n / 100) + 1, math.floor(28 * n / 100) + 1, n)
+        assert(sq, n .. " per side: the hot square is drawn")
+        assert(isRed(sq._color), ("%d per side: the hot square is red, got %s %s %s"):format(n, sq._color[1], sq._color[2], sq._color[3]))
+        assert(sq._color[4] >= 0.5, n .. " per side: opaque enough to read over the map, alpha " .. sq._color[4])
+        local quiet = squareAt(math.floor(31 * n / 100) + 1, math.floor(16 * n / 100) + 1, n)
+        assert(quiet and not isRed(quiet._color), n .. " per side: a q-5 square is not red")
+    end
+end)
+
+test("overlay: the map's bands are the radar's, for q 1, 9, 10, 24, 25, 100", function()
+    local md = { [10] = { [10] = 1 }, [20] = { [20] = 9 }, [30] = { [30] = 10 }, [40] = { [40] = 24 },
+        [50] = { [50] = 25 }, [60] = { [60] = 100 } }
+    local ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = md } })
+    S.mapID, S.zoom = ELWYNN, 1
+    WorldMapFrame:OnMapChanged()
+    local s = NAGDeathRadarSettings
+    for ix, col in pairs(md) do
+        for iy, q in pairs(col) do
+            local want = { ns.Color(q / 100, s) }
+            local sq = squareAt(ix + 1, iy + 1, 100)
+            if not want[1] then
+                eq(sq, nil, "q " .. q .. ": below the low band, not drawn (as on the radar)")
+            else
+                assert(sq, "q " .. q .. " drawn")
+                for k = 1, 4 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
+            end
+        end
+    end
+end)
+
+test("overlay and radar: a changed hot threshold moves both", function()
+    local ns = boot(barrensLike())
+    S.worldBounds[ELWYNN] = ELWYNN_BOUNDS
+    standAt(ELWYNN, 45, 28, 0)
+    S.mapID, S.zoom = ELWYNN, 1
+    WorldMapFrame:OnMapChanged()
+    assert(isRed(squareAt(46, 29, 100)._color), "map: red at 0.25")
+    SlashCmdList.NAGDEATHRADAR("threshold 0.4")
+    assert(isYellow(squareAt(46, 29, 100)._color), "map: yellow at 0.4")
+    ns.Radar.Paint()
+    local blip
+    for i = 1, ns.Radar.BlipCount() do
+        local e = ns.Radar.Blip(i)
+        if e.dx == 0 and e.dy == 0 then blip = e end
+    end
+    assert(blip, "the radar's blip under the player")
+    assert(isYellow(blip.tex._vertex), "radar: yellow at 0.4")
+    eq(ns.Radar.Pointer().tex:IsShown(), false, "radar: no hot cell left")
+    SlashCmdList.NAGDEATHRADAR("threshold 0.25")
+    assert(isRed(squareAt(46, 29, 100)._color), "map: red again")
+    ns.Radar.Paint()
+    assert(isRed(blip.tex._vertex), "radar: red again")
+end)
 
 test("radar: in a hot cell the rim turns red and the line says so; with tint off it does not", function()
     local ns = bootRadar()

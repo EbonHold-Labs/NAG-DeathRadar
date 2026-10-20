@@ -20,14 +20,16 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
 - [ ] Put `NAGDeathData = { v = 2, map = {} }` in the file, `/reload`: the same.
 
 ## 3. The heatmap (with the fixture)
-- [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows yellow-to-red squares.
+- [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows light-blue, yellow and red
+      squares, in the radar's colours.
 - [ ] The squares sit over the map art and the explored-area art, BELOW the pins (flight points, quest
       markers) and the player arrow.
 - [ ] Titan Reforged and MoP Classic only: with a quest whose objective area shows on the map, note
       whether the heat squares draw over or under the quest area. They share its frame level there, so
       either is possible; check that both stay readable.
 - [ ] On a zoomable map, zooming in and out changes the square size (25 -> 50 -> 100 per side) and nothing
-      lags. On a map that cannot zoom (a city or small zone where the mouse wheel does nothing), the
+      lags. The square under the spot the radar points at stays red at every zoom (a coarse square keeps
+      its hottest cell), and `/ndr threshold 0.4` turns the same cells yellow on the map and the radar. On a map that cannot zoom (a city or small zone where the mouse wheel does nothing), the
       squares are at full detail (100 per side).
 - [ ] Resize or maximise the map window: the squares stay aligned with the map.
 - [ ] A continent, or a zone without data: no squares, the note "no data for this map".
