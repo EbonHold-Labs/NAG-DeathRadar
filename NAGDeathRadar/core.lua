@@ -188,8 +188,8 @@ function ns.Q(mapData, ix, iy)
 end
 
 --- The danger colours, ONE scale for the radar and the world map: light blue / yellow / red by the settings'
---- bands, alpha growing with intensity i (q / 100) inside a band; nil below thrLow. Red (i >= hot) never drops
---- under 0.575, so it reads over the map art.
+--- bands, alpha growing with intensity i (q / 100) inside a band; nil below thrLow. Red (i >= hot) starts at
+--- 0.5 + 0.3 * hot (0.575 at the default 0.25), so it reads over the map art.
 function ns.Color(i, s)
     if i >= s.hot then return 1, 0, 0, 0.5 + 0.3 * math.min(i, 1) end
     if i >= s.thrMid then return 1, 1, 0, 0.3 + 0.6 * i end

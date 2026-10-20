@@ -4,7 +4,7 @@ A small, free World of Warcraft addon from the Next Action Guide team. It shows 
 levelling:
 
 - a **heatmap on the world map**: the danger zones of the open map in the radar's own colours (light
-  blue, yellow, red from the `threshold` setting), so a cell the radar points at is red on the map too;
+  blue from 0.02, yellow from 0.10, red from the `threshold` setting), so a cell the radar points at is red on the map too;
 - a **radar** that turns with you (the direction you face is up), shows the death cells around you and
   points to the nearest danger zone, from the rim when it is further than the radar reaches. While you
   stand in a danger zone the radar's rim turns red. Where there is no position (instances) or no data
