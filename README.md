@@ -37,7 +37,7 @@ Only Forever collects deaths today, so every other client shows "no data yet".
 | `/ndr ring 1\|2\|8\|10` | the ring art: 1 dark iron (default), 2 plain silver, 8 spiked dark, 10 cyan tech |
 | `/ndr grid 1\|2` | the grid art: 1 green (default), 2 blue |
 | `/ndr art [on\|off]` | the ring and grid art; off leaves a plain ring and field |
-| `/ndr map [on\|off]` | the heatmap on the world map; the **Deaths** box in the map's top-right corner does the same |
+| `/ndr map [on\|off]` | the heatmap on the world map. Also on the map itself: on Forever, "Show deaths heatmap" under "NAG Death Radar" in the map's filter menu; on the Classic clients (whose maps have no filter menu), the **Deaths** box in the map's top-right corner |
 | `/ndr alpha 0.1-1` | the heatmap's opacity (default 1: the light weight, map art reads through); also a slider in the panel |
 | `/ndr tint [on\|off]` | the red rim while you stand in a danger zone (on by default) |
 | `/ndr scale 0.5-2` | radar size (default 1) |

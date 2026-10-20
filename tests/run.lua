@@ -561,6 +561,47 @@ test("overlay: /ndr alpha scales the map squares only, refuses nan, inf and out 
     eq(ns.InitSettings({ mapAlpha = 0 }).mapAlpha, 1, "out of range reset")
 end)
 
+--- A menu description as Blizzard_Menu's root: records what the callback adds.
+local function fakeRoot()
+    local r = { added = {} }
+    function r:CreateDivider() table.insert(self.added, { kind = "divider" }) end
+    function r:CreateTitle(t) table.insert(self.added, { kind = "title", text = t }) end
+    function r:Insert(d) table.insert(self.added, d) end
+    return r
+end
+
+test("overlay: on a map with the filter button, the toggle is an entry in its menu (Forever)", function()
+    local ns = boot("nagdeath_base0.lua", { menu = true, filterButton = true })
+    eq(#S.modified, 1, "ModifyMenu once"); eq(S.modified[1].tag, "MENU_WORLD_MAP_TRACKING")
+    eq(ns.MapToggle(), nil, "no box on the map")
+    S.fire("ADDON_LOADED", "Blizzard_WorldMap") -- a second Init pass registers nothing more
+    eq(#S.modified, 1, "still once")
+    local root = fakeRoot()
+    S.modified[1].callback(WorldMapFrame.WorldMapTrackingOptionsButton, root, {})
+    eq(#root.added, 3, "a divider, a title and a checkbox")
+    eq(root.added[1].kind, "divider"); eq(root.added[2].kind, "title"); eq(root.added[2].text, "NAG Death Radar")
+    local cb = root.added[3]
+    eq(cb.kind, "checkbox"); eq(cb.text, "Show deaths heatmap")
+    eq(cb.isSelected(), true, "follows the setting")
+    S.mapID, S.zoom = ELWYNN, 1
+    WorldMapFrame:OnMapChanged()
+    assert(ns.OverlayCount() > 0)
+    cb.setSelected()
+    eq(NAGDeathRadarSettings.overlay, false, "flips the setting"); eq(ns.OverlayCount(), 0, "and applies")
+    eq(cb.isSelected(), false)
+    SlashCmdList.NAGDEATHRADAR("map on")
+    eq(cb.isSelected(), true, "/ndr map moves it"); assert(ns.OverlayCount() > 0)
+    eq(S.panels[1].panel.boxes.overlay:GetChecked(), true, "the panel follows")
+end)
+
+test("overlay: the Menu API without the map's filter button (the Classic maps) keeps the box", function()
+    local ns = boot("nagdeath_base0.lua", { menu = true })
+    eq(#S.modified, 0, "no menu entry where no filter button shows it")
+    assert(ns.MapToggle(), "the box")
+    ns = boot("nagdeath_base0.lua")
+    assert(ns.MapToggle(), "no Menu API at all: the box, nothing errors")
+end)
+
 test("overlay: the map's own toggle, /ndr map and the panel stay in step, and it is saved", function()
     local ns = boot("nagdeath_base0.lua")
     local t = assert(ns.MapToggle(), "a toggle on the world map")

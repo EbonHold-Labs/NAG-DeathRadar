@@ -238,7 +238,7 @@ local NUMBERS = { scale = "scale", range = "yards", threshold = "hot", alpha = "
 ns.HELP = {
     "/ndr show | hide: the radar",
     "/ndr lock: lock or unlock the radar (drag it with Alt held)",
-    "/ndr map [on|off]: the heatmap on the world map (also the Deaths box on the map), alpha 0.1-1: its opacity",
+    "/ndr map [on|off]: the heatmap on the world map (also in the map's filter menu, or its Deaths box), alpha 0.1-1: its opacity",
     "/ndr tint [on|off]: the rim turns red where you stand in a hot cell",
     "/ndr art [on|off], ring 1|2|8|10, grid 1|2 (1 green, 2 blue): the radar's look",
     "/ndr scale 0.5-2, range 30-300 (yards), threshold 0.05-1 (hot from this intensity)",

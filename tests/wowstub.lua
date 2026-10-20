@@ -9,7 +9,7 @@
 local S = {}
 
 local PROBED = { CreateMaskTexture = true, GetCanvas = true, GetCanvasContainer = true, GetCanvasZoomPercent = true,
-    GetScaleForMinZoom = true, GetScaleForMaxZoom = true,
+    GetScaleForMinZoom = true, GetScaleForMaxZoom = true, WorldMapTrackingOptionsButton = true,
     GetPinFrameLevelsManager = true, OnMapChanged = true, OnCanvasScaleChanged = true }
 
 local REGION, FRAME, CHECK, BUTTON, SLIDER, TEXTURE, MASK, FONT, TOOLTIP = {}, {}, {}, {}, {}, {}, {}, {}, {}
@@ -126,6 +126,16 @@ function S.reset(opts)
     S.player = { map = nil, x = nil, y = nil, facing = 0, alt = false, combat = false }
     S.panels, S.opened = {}, {}
     S.sliderTemplate = opts.sliderTemplate ~= false -- false: a client without UISliderTemplateWithLabels
+    -- opts.menu: the Menu API (Menu.ModifyMenu, MenuUtil.CreateCheckbox); S.modified records each ModifyMenu.
+    S.modified = {}
+    if opts.menu then
+        _G.Menu = { ModifyMenu = function(tag, cb) table.insert(S.modified, { tag = tag, callback = cb }) end }
+        _G.MenuUtil = { CreateCheckbox = function(text, isSelected, setSelected)
+            return { kind = "checkbox", text = text, isSelected = isSelected, setSelected = setSelected }
+        end }
+    else
+        _G.Menu, _G.MenuUtil = nil, nil
+    end
 
     _G.NAGDeathData, _G.NAGDeathRadarSettings = nil, nil
     _G.UIParent = new(FRAME)
@@ -178,6 +188,7 @@ function S.reset(opts)
         end
     end
     W.GetMapID = function() return S.mapID end
+    if opts.filterButton then W.WorldMapTrackingOptionsButton = new(FRAME, W) end
     W.OnMapChanged = function() end
     W.OnCanvasScaleChanged = function() end
     S.canvas = canvas

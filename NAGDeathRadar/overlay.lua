@@ -60,7 +60,7 @@ function ns.CappedBuckets(mapData, n, cap)
     return b, n, count
 end
 
-local layer, label, toggle
+local layer, label, toggle, menuEntry
 local pool, used = {}, 0
 local lastMap, lastN
 
@@ -185,7 +185,38 @@ function O.Init()
         O.RaiseToggle()
         O.Redraw(true)
     end)
-    O.BuildToggle(W)
+    if not O.AddMenuEntry(W) then O.BuildToggle(W) end
+end
+
+local MENU_TAG = "MENU_WORLD_MAP_TRACKING"
+
+--- THE SWITCH IN THE MAP'S FILTER MENU: a "NAG Death Radar" section (divider, title, check box) added to the
+--- world map's tracking menu through Blizzard's public Menu.ModifyMenu, bound to the same `overlay` setting as
+--- /ndr map and the panel. Only where the map shows that menu's button (WorldMapTrackingOptionsButton: the
+--- Mainline map, Forever). Every target client has the Menu API, but the Classic maps (Vanilla, TBC, Wrath,
+--- Cata) define the button's template and never create it, so their menu never opens: they keep the box.
+--- Registered once; true when the entry is in place.
+function O.AddMenuEntry(W)
+    if menuEntry then return true end
+    local M, MU = _G.Menu, _G.MenuUtil
+    if type(M) ~= "table" or type(M.ModifyMenu) ~= "function" or type(MU) ~= "table"
+        or type(MU.CreateCheckbox) ~= "function" or type(W.WorldMapTrackingOptionsButton) ~= "table" then
+        return false
+    end
+    local function isSelected() return NAGDeathRadarSettings.overlay == true end
+    local function setSelected()
+        NAGDeathRadarSettings.overlay = not NAGDeathRadarSettings.overlay
+        ns.Apply()
+    end
+    local ok = pcall(M.ModifyMenu, MENU_TAG, function(_, root)
+        pcall(function()
+            root:CreateDivider()
+            root:CreateTitle("NAG Death Radar")
+            root:Insert(MU.CreateCheckbox("Show deaths heatmap", isSelected, setSelected))
+        end)
+    end)
+    menuEntry = ok
+    return ok
 end
 
 --- The box's frame level: above every pin. A child of WorldMapFrame sits at the map's level + 1, under the
@@ -216,13 +247,13 @@ local function toggleTip(self)
     GameTooltip:Show()
 end
 
---- THE MAP'S OWN SWITCH: a check box in the top-right corner of the map area, a child of WorldMapFrame so it hides
---- with the map; our frame and our SetPoint, nothing written into Blizzard's frames. It drives the same `overlay`
---- setting as /ndr map and the panel. That corner is free on every map family the addon loads on (checked in the
---- wow-ui-source clones): Mainline (Forever, Camelot layout) puts its floor dropdown and the tracking pin at the
---- canvas's top LEFT and the tracking options beside the title bar; the Vanilla and TBC maps keep the dropdowns,
---- zoom-out and close buttons in the bar above the canvas and the "zoom out" magnifier at its top left; Wrath
---- and Cata keep the floor dropdown in that bar (maximised) or at the canvas's top left (windowed).
+--- THE BOX ON THE MAP, where the map has no filter menu (the Classic maps): a check box in the top-right corner
+--- of the map area, a child of WorldMapFrame so it hides with the map; our frame and our SetPoint, nothing
+--- written into Blizzard's frames. It drives the same `overlay` setting as /ndr map and the panel. In the
+--- wow-ui-source clones that corner is free on the Classic maps: the Vanilla and TBC maps keep their dropdowns,
+--- zoom-out and close buttons in the bar above the map area and the "zoom out" magnifier at its top left; Wrath
+--- and Cata keep the floor dropdown in that bar (maximised) or at the map area's top left (windowed). On Forever
+--- (Mainline map) the "Dungeon map" and Map Filter buttons sit in that corner in game, so Forever uses the menu.
 function O.BuildToggle(W)
     if toggle then return end
     local holder = type(W.GetCanvasContainer) == "function" and W:GetCanvasContainer() or W
