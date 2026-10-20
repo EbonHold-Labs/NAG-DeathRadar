@@ -568,6 +568,11 @@ test("overlay: the map's own toggle, /ndr map and the panel stay in step, and it
     eq(t._template, "UICheckButtonTemplate")
     eq(t._point[1], "TOPRIGHT"); eq(t._point[2], WorldMapFrame:GetCanvasContainer(), "in the map area's top-right corner")
     eq(t:GetChecked(), true, "on")
+    assert(t:GetFrameLevel() > 2719, "above the topmost pin level (2700 .. 2719), got " .. t:GetFrameLevel())
+    assert(t:GetFrameLevel() > ns.OverlayLevel() and t:GetFrameLevel() > S.canvas:GetFrameLevel(), "above the layer and the canvas")
+    t:SetFrameLevel(2) -- a level reset by the client
+    WorldMapFrame._scripts.OnShow(WorldMapFrame)
+    assert(t:GetFrameLevel() > 2719, "re-asserted on map show")
     S.mapID, S.zoom = ELWYNN, 1
     WorldMapFrame:OnMapChanged()
     assert(ns.OverlayCount() > 0)
@@ -880,6 +885,7 @@ test("panel: check boxes follow the settings", function()
     -- The map opacity slider (UISliderTemplateWithLabels on every target client).
     local sl = assert(p.mapAlpha, "a slider")
     eq(S.lastTemplate, "UISliderTemplateWithLabels"); eq(sl._min, 0.1); eq(sl._max, 1); eq(sl:GetValue(), 1)
+    assert((sl._h or 0) > 0 and (sl._w or 0) > 0, "the slider has a width and a height to draw in")
     sl._scripts.OnValueChanged(sl, 0.6, true)
     eq(NAGDeathRadarSettings.mapAlpha, 0.6, "the slider sets the opacity")
     SlashCmdList.NAGDEATHRADAR("alpha 0.33")

@@ -181,8 +181,32 @@ function O.Init()
     if type(W.OnCanvasScaleChanged) == "function" then
         hooksecurefunc(W, "OnCanvasScaleChanged", function() O.Redraw() end)
     end
-    W:HookScript("OnShow", function() O.Redraw(true) end)
+    W:HookScript("OnShow", function()
+        O.RaiseToggle()
+        O.Redraw(true)
+    end)
     O.BuildToggle(W)
+end
+
+--- The box's frame level: above every pin. A child of WorldMapFrame sits at the map's level + 1, under the
+--- canvas's pins (from about 2000, MAP_CANVAS_PIN_FRAME_LEVEL_DEFAULT); so it takes the pin manager's highest
+--- level (the topmost type's last) plus a margin for a pin's own children, and never less than the heat
+--- layer's plus 100. The strata is left as the map's own (the Vanilla and TBC maps go FULLSCREEN when
+--- maximised). Set again on every map show, as the client can reset levels.
+local TOGGLE_MARGIN, LAYER_MARGIN = 20, 100
+
+function O.RaiseToggle()
+    if not toggle then return end
+    local level = layer and layer:GetFrameLevel() + LAYER_MARGIN or 0
+    local W = mapFrame()
+    if W and type(W.GetPinFrameLevelsManager) == "function" then
+        local ok, mgr = pcall(W.GetPinFrameLevelsManager, W)
+        if ok and type(mgr) == "table" and type(mgr.GetValidFrameLevel) == "function" then
+            local okTop, top = pcall(mgr.GetValidFrameLevel, mgr, "PIN_FRAME_LEVEL_TOPMOST", 10000)
+            if okTop and type(top) == "number" and top + TOGGLE_MARGIN > level then level = top + TOGGLE_MARGIN end
+        end
+    end
+    if level > 0 and toggle:GetFrameLevel() ~= level then toggle:SetFrameLevel(level) end
 end
 
 local function toggleTip(self)
@@ -218,6 +242,7 @@ function O.BuildToggle(W)
         if ns.TooltipOwnedBy(self) then GameTooltip:Hide() end
     end)
     toggle:SetChecked(NAGDeathRadarSettings.overlay)
+    O.RaiseToggle()
 end
 
 function O.Refresh(s)

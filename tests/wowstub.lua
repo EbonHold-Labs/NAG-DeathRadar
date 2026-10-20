@@ -170,7 +170,9 @@ function S.reset(opts)
         W.GetScaleForMinZoom = function() return S.minScale end
         W.GetScaleForMaxZoom = function() return S.maxScale end
         W.GetPinFrameLevelsManager = function()
-            return { GetValidFrameLevel = function(_, kind)
+            -- As MapCanvasPinFrameLevelsManagerMixin: the topmost type starts at 2700 with a range of 20.
+            return { GetValidFrameLevel = function(_, kind, index)
+                if kind == "PIN_FRAME_LEVEL_TOPMOST" then return 2700 + math.max(1, math.min(index or 1, 20)) - 1 end
                 return kind == "PIN_FRAME_LEVEL_MAP_EXPLORATION" and 2003 or 2000
             end }
         end

@@ -107,7 +107,7 @@ function ns.BuildPanel()
     local rowY = -40 - (#BOXES + 2) * 30 - 14
     local okSlider, sl = pcall(CreateFrame, "Slider", nil, panel, "UISliderTemplateWithLabels")
     if okSlider and type(sl) == "table" and type(sl.SetMinMaxValues) == "function" and sl.Text then
-        sl:SetWidth(200)
+        sl:SetSize(200, 17) -- the templates set no size: without a height the bar has nothing to draw in
         sl:SetPoint("TOPLEFT", panel, "TOPLEFT", 24, rowY)
         sl:SetMinMaxValues(0.1, 1)
         sl:SetValueStep(0.05)
