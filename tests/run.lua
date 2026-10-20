@@ -304,23 +304,58 @@ test("upsample: bilinear 100 -> 200, edges clamped, a fine cell never under its 
     near(up[19][19], 6.25, "corner"); near(up[22][22], 6.25, "corner")
     eq(up[18], nil, "nothing past the bilinear support")
     up = ns.Upsample({ [10] = { [10] = 30 } }, s) -- bilinear 16.875 would be yellow; the radar calls 30 hot
-    near(up[20][20], 25, "raised to the hot threshold: red where the radar points")
+    near(up[20][20], 30, "raised to its own cell's q: red where the radar points")
     near(up[19][20], 5.625, "a cell of an empty parent is not raised")
     up = ns.Upsample({ [10] = { [10] = 12 } }, s)
-    near(up[20][20], 10, "a yellow parent's cell stays yellow")
+    near(up[20][20], 12, "a yellow parent's cell stays yellow")
     up = ns.Upsample({ [10] = { [10] = 1 } }, s)
     near(up[20][20], 0.5625, "below the low band: not raised")
     up = ns.Upsample({ [0] = { [0] = 40 } }, s)
     near(up[0][0], 40, "the corner fine cell reads its own cell only")
-    near(up[1][1], 25, "0.5625 x 40 = 22.5, raised to hot")
+    near(up[1][1], 40, "0.5625 x 40 = 22.5 is yellow: its own cell's q")
     up = ns.Upsample({ [99] = { [99] = 40 } }, s)
     near(up[199][199], 40, "the far corner"); eq(up[200], nil, "nothing past the grid")
     s.hot = 0.4
     up = ns.Upsample({ [10] = { [10] = 30 } }, s)
-    near(up[20][20], 16.875, "hot from 0.4: 30 is yellow, its floor 10 is under the bilinear value")
+    near(up[20][20], 16.875, "hot from 0.4: 30 is yellow, and so is 16.875: not raised")
 end)
 
-test("fine: the packed field decodes to the encoder's cells; a bad field is ignored, the 100 grid stays", function()
+test("upsample: at every threshold the addon takes, a lone hot cell's own fine cells draw red", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    local bad = {}
+    for h = 50, 1000 do -- every three-decimal /ndr threshold, 0.050 .. 1.000
+        s.hot = h / 1000
+        local q = math.ceil(s.hot * 100 - 1e-9) -- the coolest whole q the radar calls hot
+        if q / 100 < s.hot then q = q + 1 end
+        if q <= 100 then
+            local up = ns.Upsample({ [10] = { [10] = q } }, s)
+            for jx = 20, 21 do
+                for jy = 20, 21 do
+                    local r, g = ns.MapColor(up[jx][jy] / 100, s)
+                    if not (r == 1 and g == 0) then bad[#bad + 1] = ("%s q %d"):format(s.hot, q) end
+                end
+            end
+        end
+    end
+    eq(#bad, 0, "thresholds whose hot cell draws another colour: " .. table.concat(bad, ", ", 1, math.min(#bad, 8)))
+    s = ns.InitSettings(nil)
+    s.thrLow = 0.167 -- the same edge at the low band: a cell the radar draws light blue is drawn on the map
+    local up = ns.Upsample({ [10] = { [10] = 17 } }, s)
+    assert(ns.MapColor(up[20][20] / 100, s), "q 17 at a low band of 0.167: drawn")
+end)
+
+
+--- One run in the server's packed grammar (Tools PR #1142 _pack): Y(2) X(2) N(1) and N levels, base64 digits.
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local function digit(v) return B64:sub(v + 1, v + 1) end
+local function run(y, x, levels)
+    local s = digit(math.floor(y / 64)) .. digit(y % 64) .. digit(math.floor(x / 64)) .. digit(x % 64) .. digit(#levels)
+    for _, l in ipairs(levels) do s = s .. digit(l) end
+    return s
+end
+
+test("fine: the server's packed field decodes to the cells its encoder was given; a bad one is ignored", function()
     local ns = boot(false)
     local raw = readFixture("nagdeath_fine.lua")
     local d = assert(ns.LoadData(raw))
@@ -331,7 +366,7 @@ test("fine: the packed field decodes to the encoder's cells; a bad field is igno
         for _, col in pairs(d.fine.map[m]) do for _ in pairs(col) do got = got + 1 end end
         eq(got, #cells, "map " .. m .. ": every cell, no other")
         for _, c in ipairs(cells) do
-            near(d.fine.map[m][c[1]][c[2]], 100 * c[3] / 64, ("map %d cell %d,%d"):format(m, c[1], c[2]))
+            near(d.fine.map[m][c[1]][c[2]], 100 * c[3] / 63, ("map %d cell %d,%d"):format(m, c[1], c[2]))
         end
     end
     local plain = assert(ns.LoadData(readFixture("nagdeath_base0.lua")))
@@ -343,25 +378,40 @@ test("fine: the packed field decodes to the encoder's cells; a bad field is igno
         assert(dd, "fine never makes the data unusable: " .. tostring(why))
         return dd.fine, dd.fineReason
     end
+    local one = { run(0, 0, { 1 }) }
     eq(select(2, fineOf(nil)), "absent")
     eq(select(2, fineOf("x")), "format")
-    for _, g in ipairs({ 100, 199, 401, 200.5, "200" }) do eq(select(2, fineOf({ grid = g, [1] = "0,0,A" })), "grid", tostring(g)) end
-    local f300 = fineOf({ grid = 300, [1] = "299,299,_" })
-    near(f300.map[1][299][299], 100, "a 300 grid reads; the map folds it to 200")
-    eq(select(2, fineOf({ grid = 200, cellBase = 2, [1] = "0,0,A" })), "cellBase")
-    for _, l in ipairs({ 1, 65, 2.5 }) do eq(select(2, fineOf({ grid = 200, levels = l, [1] = "0,0,A" })), "levels", tostring(l)) end
-    eq(select(2, fineOf({ grid = 200, [1] = "0,0,!" })), "empty", "no valid map")
-    local f = fineOf({ grid = 200, [1429] = "1,2,A;3,4,A!", [1411] = "3,4,BC" })
-    eq(f.map[1429], nil, "a bad segment drops its map, which falls back"); eq(f.maps, 1)
-    near(f.map[1411][3][4], 100 * 2 / 64); near(f.map[1411][3][5], 100 * 3 / 64)
-    f = fineOf({ grid = 200, [1] = "199,197,AAA", [2] = "199,198,AAA", [3] = "200,1,A" })
-    assert(f.map[1], "rows 197..199 fit"); eq(f.map[2], nil, "a strip past the last row"); eq(f.map[3], nil, "x past the grid")
-    f = fineOf({ grid = 200, cellBase = 1, [1] = "200,1,A", [2] = "0,1,A" })
-    assert(f.map[1][199][0], "1-based: x 200 is the last column"); eq(f.map[2], nil, "1-based: x 0 is off the grid")
-    f = fineOf({ grid = 200, levels = 4, [1] = "1,1,D", [2] = "1,1,E" })
-    near(f.map[1][1][1], 100, "level 4 of 4 is 100"); eq(f.map[2], nil, "a level past levels")
-    f = fineOf({ grid = 200, [1] = "1,1,_", ["x"] = "1,1,A", [0] = "1,1,A", [-3] = "1,1,A", [2] = 7 })
-    near(f.map[1][1][1], 100, "the 64th character is 100"); eq(f.maps, 1, "only positive integer map keys with strings")
+    for _, g in ipairs({ 100, 199, 401, 200.5, "200" }) do eq(select(2, fineOf({ grid = g, [1] = one })), "grid", tostring(g)) end
+    near(fineOf({ grid = 300, [1] = { run(299, 299, { 63 }) } }).map[1][299][299], 100, "a 300 grid reads; the map folds it to 200")
+    eq(select(2, fineOf({ grid = 200, cellBase = 2, [1] = one })), "cellBase")
+    for _, l in ipairs({ 1, 65, 2.5 }) do eq(select(2, fineOf({ grid = 200, levels = l, [1] = one })), "levels", tostring(l)) end
+    eq(select(2, fineOf({ grid = 200, [1] = { "!" } })), "empty", "no valid map")
+    local f = fineOf({ grid = 200, [1] = { run(5, 7, { 63, 0, 0, 31 }) .. run(6, 0, { 2 }), run(199, 190, { 1 }) } })
+    near(f.map[1][7][5], 100, "x 7 row 5, level 63 of 64 is 100"); eq(f.map[1][8], nil, "a level 0 bridges: no cell")
+    near(f.map[1][10][5], 100 * 31 / 63, "x 7 + 3"); near(f.map[1][0][6], 100 * 2 / 63, "a second run in one string")
+    near(f.map[1][190][199], 100 / 63, "a second string, the last row")
+    local cases = {
+        { { run(0, 0, { 1 }) .. "!" }, "a bad character" },
+        { { run(0, 0, { 1 }):sub(1, 4) }, "a header cut short" },
+        { { run(0, 0, { 1 }):sub(1, 5) }, "a run with fewer levels than N" },
+        { { run(0, 0, {}) }, "N 0" },
+        { { run(0, 198, { 1, 1, 1 }) }, "a run past the last column" },
+        { { run(200, 0, { 1 }) }, "a row past the grid" },
+        { { run(0, 0, { 0 }) }, "only empty cells" },
+        { { run(0, 0, { 1 }), 7 }, "a string list holding a number" },
+        { {}, "an empty list" },
+        { run(0, 0, { 1 }), "a bare string, not a list" },
+    }
+    for i, c in ipairs(cases) do
+        f = fineOf({ grid = 200, [1] = c[1], [2] = one })
+        eq(f.map[1], nil, c[2] .. ": its map is dropped"); assert(f.map[2], c[2] .. ": the other map stays")
+    end
+    f = fineOf({ grid = 200, levels = 4, [1] = { run(1, 1, { 3 }) }, [2] = { run(1, 1, { 4 }) } })
+    near(f.map[1][1][1], 100, "level 3 of 4 is 100"); eq(f.map[2], nil, "a level past levels - 1")
+    f = fineOf({ grid = 200, cellBase = 1, [1] = { run(1, 200, { 63 }) }, [2] = { run(0, 1, { 63 }) } })
+    assert(f.map[1][199][0], "1-based: x 200, y 1 is the last column's first row"); eq(f.map[2], nil, "1-based: y 0 is off")
+    f = fineOf({ grid = 200, [1] = one, ["x"] = one, [0] = one, [-3] = one, [2.5] = one })
+    eq(f.maps, 1, "only positive integer map keys")
     local r = readFixture("nagdeath_fine.lua"); r.map = nil
     eq(select(2, ns.LoadData(r)), "map", "fine alone is not data: the 100 grid stays required")
 end)
@@ -550,7 +600,7 @@ test("overlay: with `fine`, the map draws the file's own 200 cells, not the upsa
         local inFine = {}
         for _, c in ipairs(raw.fineExpect[m]) do
             inFine[c[1] * 1000 + c[2]] = true
-            local r, g, b, a = ns.MapColor(c[3] / 64, s)
+            local r, g, b, a = ns.MapColor(c[3] / 63, s)
             local tex = cellTex(c[1], c[2])
             if r then
                 assert(tex, ("map %d fine %d,%d drawn"):format(m, c[1], c[2]))
@@ -655,6 +705,49 @@ test("overlay: a hot cell reads red on the map at every zoom, where the radar po
     end
 end)
 
+test("fine: the radar reads the fine cells folded to its grid, so its hot cells are red on the map", function()
+    local raw = readFixture("nagdeath_fine.lua")
+    local ns = boot("nagdeath_fine.lua")
+    local s = NAGDeathRadarSettings
+    for _, m in ipairs({ ELWYNN, DUROTAR }) do
+        local md = ns.MapData(m)
+        local fine = ns.data.fine.map[m]
+        local n, hot = 0, 0
+        for ix, col in pairs(md) do
+            for iy, q in pairs(col) do
+                n = n + 1
+                local best = 0
+                for jx = 2 * ix, 2 * ix + 1 do
+                    for jy = 2 * iy, 2 * iy + 1 do best = math.max(best, fine[jx] and fine[jx][jy] or 0) end
+                end
+                eq(q, best, ("map %d cell %d,%d: its hottest fine cell"):format(m, ix, iy))
+                if q / 100 >= s.hot then hot = hot + 1 end
+            end
+        end
+        assert(n > 0 and hot > 0, "map " .. m .. ": cells and hot cells to check")
+        assert(ns.data.map[m] ~= md, "not the 100 grid")
+        S.mapID = m
+        WorldMapFrame:OnMapChanged()
+        for ix, col in pairs(md) do
+            for iy, q in pairs(col) do
+                if q / 100 >= s.hot then
+                    local red = false
+                    for jx = 2 * ix, 2 * ix + 1 do
+                        for jy = 2 * iy, 2 * iy + 1 do
+                            local tex = cellTex(jx, jy)
+                            if tex and isRed(tex._color) then red = true end
+                        end
+                    end
+                    assert(red, ("map %d: the radar's hot cell %d,%d has a red fine cell on the map"):format(m, ix, iy))
+                end
+            end
+        end
+    end
+    eq(ns.MapData(NO_DATA_MAP), nil)
+    local plain = boot("nagdeath_base0.lua")
+    eq(plain.MapData(ELWYNN), plain.data.map[ELWYNN], "without fine, the radar reads map")
+end)
+
 test("overlay: the map's bands are the radar's, for q 1, 9, 10, 24, 25, 100", function()
     local md = { [10] = { [10] = 1 }, [20] = { [20] = 9 }, [30] = { [30] = 10 }, [40] = { [40] = 24 },
         [50] = { [50] = 25 }, [60] = { [60] = 100 } }
@@ -707,11 +800,12 @@ local function mapWeight(q, red, mapAlpha)
     return a * (mapAlpha or 1)
 end
 
---- A lone cell's inner fine value: bilinear 0.75 x 0.75 of q, never under the floor of q's band (default bands).
-local function loneInner(q, hot)
-    hot = hot or 25
-    local floorQ = q >= hot and hot or q >= 10 and 10 or q >= 2 and 2 or 0
-    return math.max(0.5625 * q, floorQ)
+--- A lone cell's inner fine value: bilinear 0.75 x 0.75 of q, or q itself where that falls in a lower band
+--- (default bands: light blue from 2, yellow from 10, red from 25).
+local function loneInner(q)
+    local function band(v) return v >= 25 and 3 or v >= 10 and 2 or v >= 2 and 1 or 0 end
+    local v = 0.5625 * q
+    return band(v) < band(q) and q or v
 end
 
 test("overlay: at the default each band weighs what the old ramp did; red never under its floor", function()
@@ -740,7 +834,7 @@ test("overlay: /ndr alpha scales the map squares only, refuses nan, inf and out 
     WorldMapFrame:OnMapChanged()
     SlashCmdList.NAGDEATHRADAR("alpha 0.5")
     eq(NAGDeathRadarSettings.mapAlpha, 0.5)
-    near(cellTex(90, 56)._color[4], quant(mapWeight(25, true, 0.5)), "hot cell at half (raised to hot)", 1e-9)
+    near(cellTex(90, 56)._color[4], quant(mapWeight(32, true, 0.5)), "hot cell at half (its own q 32)", 1e-9)
     near(cellTex(62, 32)._color[4], quant(mapWeight(5, false, 0.5)), "quiet cell at half", 1e-9)
     standAt(ELWYNN, 45, 28, 0)
     ns.Radar.Paint()

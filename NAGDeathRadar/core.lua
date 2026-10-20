@@ -111,40 +111,67 @@ local function isNum(v)
     return type(v) == "number" and v == v
 end
 
--- THE OPTIONAL `fine` FIELD (proposed to the server, relay of 2026-10-20; tools/make_fixtures.py encode_fine is
--- the reference encoder): finer cells for the world map, beside `map`, which stays for the radar and older copies.
---   fine = { grid = 200, cellBase = 0, levels = 64, [uiMapID] = "x,y,cells;x,y,cells;..." }
--- grid: cells per side, an integer FINE_GRID..400 (never coarser than the map draws, which would leave holes). cellBase: 0 or 1, 0 when absent. levels: q steps, 2..64, 64 when
--- absent. One string per map, segments joined by ";": the column x, the first row y (decimal, in cellBase) and
--- one character per cell at rows y, y+1, ... A character's position p in FINE_ALPHABET is level p + 1, read as
--- q = 100 * (p + 1) / levels. A field that breaks any of this is ignored and the map draws from `map`; a map
--- whose string breaks it is ignored alone.
-ns.FINE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+-- THE OPTIONAL `fine` FIELD (the server's, Tools PR #1142, relay 3726): finer cells for the world map, beside
+-- `map`, which stays for older copies.
+--   fine = { grid = 200, cellBase = 0, levels = 64, [uiMapID] = { "packed", "packed", ... } }
+-- grid: cells per side, an integer FINE_GRID..400 (never coarser than the map draws, which would leave holes).
+-- cellBase: 0 or 1, 0 when absent. levels: 2..64, 64 when absent; a cell's level is 1..levels - 1, the map's
+-- hottest cell is levels - 1, read as q = 100 * level / (levels - 1). Each string holds whole runs along a row:
+-- Y (2 chars), X (2 chars), N (1 char, 1 or more), then N level characters for the cells x .. x + N - 1 of row y;
+-- a level 0 is an empty cell (it bridges a short gap). Every character is a base64 digit (FINE_B64) whose value
+-- is its index; two-digit numbers are high digit first. A field that breaks any of this is ignored and the map
+-- draws from `map`; a map whose strings break it is ignored alone.
+ns.FINE_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 ns.FINE_MAX_GRID = 400
 
-local FINE_LEVEL = {} -- a character's byte -> its 0-based position in the alphabet
-for i = 1, #ns.FINE_ALPHABET do FINE_LEVEL[ns.FINE_ALPHABET:byte(i)] = i - 1 end
+local B64 = {} -- a character's byte -> its digit value
+for i = 1, #ns.FINE_B64 do B64[ns.FINE_B64:byte(i)] = i - 1 end
 
---- One map's packed string -> its 0-based grid { [x] = { [y] = q } } and cell count, or nil.
-function ns.DecodeFineMap(str, grid, base, levels)
-    if type(str) ~= "string" then return nil end
+--- One map's list of packed strings -> its 0-based grid { [x] = { [y] = q } } and cell count, or nil.
+function ns.DecodeFineMap(list, grid, base, levels)
+    if type(list) ~= "table" or #list == 0 then return nil end
     local out, n = {}, 0
-    for seg in str:gmatch("[^;]+") do
-        local x, y, cells = seg:match("^(%d+),(%d+),([%w%-_]+)$")
-        if not x then return nil end
-        x, y = tonumber(x) - base, tonumber(y) - base
-        if x < 0 or x >= grid or y < 0 or y + #cells > grid then return nil end
-        local col = out[x]
-        if not col then col = {}; out[x] = col end
-        for k = 1, #cells do
-            local p = FINE_LEVEL[cells:byte(k)]
-            if not p or p >= levels then return nil end
-            if col[y + k - 1] == nil then n = n + 1 end
-            col[y + k - 1] = 100 * (p + 1) / levels
+    for i = 1, #list do
+        local s = list[i]
+        if type(s) ~= "string" then return nil end
+        local p, len = 1, #s
+        while p <= len do
+            if p + 4 > len then return nil end
+            local y1, y2, x1, x2, c = B64[s:byte(p)], B64[s:byte(p + 1)], B64[s:byte(p + 2)], B64[s:byte(p + 3)],
+                B64[s:byte(p + 4)]
+            if not (y1 and y2 and x1 and x2 and c) or c < 1 or p + 4 + c > len then return nil end
+            local y, x = y1 * 64 + y2 - base, x1 * 64 + x2 - base
+            if y < 0 or y >= grid or x < 0 or x + c > grid then return nil end
+            for k = 0, c - 1 do
+                local q = B64[s:byte(p + 5 + k)]
+                if not q or q >= levels then return nil end
+                if q > 0 then
+                    local col = out[x + k]
+                    if not col then col = {}; out[x + k] = col end
+                    if col[y] == nil then n = n + 1 end
+                    col[y] = 100 * q / (levels - 1)
+                end
+            end
+            p = p + 5 + c
         end
     end
     if n == 0 then return nil end
     return out, n
+end
+
+--- A 0-based grid of `from` cells per side folded to the 0-based ns.GRID grid, keeping each cell's highest q.
+function ns.FoldToGrid(src, from)
+    local out = {}
+    for jx, col in pairs(src) do
+        local ix = floor(jx * ns.GRID / from)
+        local o = out[ix]
+        if not o then o = {}; out[ix] = o end
+        for jy, q in pairs(col) do
+            local iy = floor(jy * ns.GRID / from)
+            if (o[iy] or 0) < q then o[iy] = q end
+        end
+    end
+    return out
 end
 
 --- The `fine` field -> { map = { [uiMapID] = grid }, grid = cells per side, maps = count } and "ok", or nil and a
@@ -155,19 +182,19 @@ function ns.LoadFine(raw)
     if type(f) ~= "table" then return nil, "format" end
     local grid, base, levels = f.grid, f.cellBase, f.levels
     if base == nil then base = 0 end
-    if levels == nil then levels = #ns.FINE_ALPHABET end
+    if levels == nil then levels = #ns.FINE_B64 end
     if not isInt(grid) or grid < ns.FINE_GRID or grid > ns.FINE_MAX_GRID then return nil, "grid" end
     if base ~= 0 and base ~= 1 then return nil, "cellBase" end
-    if not isInt(levels) or levels < 2 or levels > #ns.FINE_ALPHABET then return nil, "levels" end
-    local maps, nMaps = {}, 0
-    for m, str in pairs(f) do
+    if not isInt(levels) or levels < 2 or levels > #ns.FINE_B64 then return nil, "levels" end
+    local maps, coarse, nMaps = {}, {}, 0
+    for m, list in pairs(f) do
         if isInt(m) and m > 0 then
-            local g = ns.DecodeFineMap(str, grid, base, levels)
-            if g then maps[m], nMaps = g, nMaps + 1 end
+            local g = ns.DecodeFineMap(list, grid, base, levels)
+            if g then maps[m], coarse[m], nMaps = g, ns.FoldToGrid(g, grid), nMaps + 1 end
         end
     end
     if nMaps == 0 then return nil, "empty" end
-    return { map = maps, grid = grid, maps = nMaps }, "ok"
+    return { map = maps, coarse = coarse, grid = grid, maps = nMaps }, "ok"
 end
 
 --- The data check. Reads only the fields it knows and ignores every other one. Returns the data or nil, and a
@@ -243,10 +270,13 @@ function ns.StatusLine()
     return line .. (", %d maps"):format(d.maps)
 end
 
---- The data's grid for a uiMapID, or nil.
+--- The radar's grid (ns.GRID per side) for a uiMapID, or nil: the file's `fine` cells folded to it (each cell its
+--- hottest fine cell, so a cell the radar calls hot holds a fine cell the world map draws in the same red, and
+--- the server's per-cell floor holds on both), else `map`.
 function ns.MapData(map)
     local d = ns.data
-    return d and type(map) == "number" and d.map[map] or nil
+    if not d or type(map) ~= "number" then return nil end
+    return d.fine and d.fine.coarse[map] or d.map[map]
 end
 
 --- A map position 0..1 -> its 0-based cell 0..99, exactly as the server bins a death: the addon stores

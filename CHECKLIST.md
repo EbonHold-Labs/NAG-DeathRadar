@@ -7,7 +7,7 @@ client build and anything odd.
 To try with data before the app drops the real file: copy `tests/fixtures/nagdeath_base0.lua` over
 `NAGDeathRadar/Data/NAGDeathData.lua` and `/reload`. It has cells on Elwynn Forest (1429) and Durotar
 (1411) only, so try it on a character in one of those zones. `tests/fixtures/nagdeath_fine.lua` is the same
-deaths with the proposed `fine` field (200 per side): swap it in to see the map draw the file's own fine cells.
+deaths with the server's `fine` field (200 per side): swap it in to see the map draw the file's own fine cells.
 
 ## 1. Load without NAG
 - [ ] With NAG disabled, the addon list shows "NAG Death Radar", not flagged out of date (on Forever the

@@ -3,8 +3,9 @@
 --- WorldMapFrame has a canvas (GetCanvas); elsewhere the module does nothing.
 ---
 --- THE PICTURE is a FINE_GRID (200) x 200 grid per map: the file's `fine` cells when it has them for the map,
---- else its 100 grid upsampled bilinearly (ns.Upsample), where a fine cell is never under its own 100-cell's
---- colour band, so a cell the radar calls hot is red on the map too. Same-colour cells along a row are one
+--- else its 100 grid upsampled bilinearly (ns.Upsample), where a fine cell is never in a lower colour band than
+--- its own 100-cell's, so a cell the radar calls hot is red on the map too (with `fine`, the radar reads the fine
+--- cells folded to 100: ns.MapData). Same-colour cells along a row are one
 --- texture (ns.Runs: the band and the alpha rounded to ALPHA_STEP); over CAP textures the grid is folded to
 --- 100, then 50, then 25 per side, keeping each bucket's hottest cell. A texture is anchored at its TOPLEFT and
 --- BOTTOMRIGHT from the same edge formula as its neighbours, with pixel snapping off, so touching squares meet
@@ -52,16 +53,18 @@ function ns.Rebucket(mapData, n, from)
     return out, count
 end
 
---- The lowest intensity of the band ns.Color gives i, in ns.Color's own order; 0 below the low band.
-local function bandFloor(i, s)
-    if i >= s.hot then return s.hot end
-    if i >= s.thrMid then return s.thrMid end
-    if i >= s.thrLow then return s.thrLow end
+--- The band ns.Color gives i, by ns.Color's own tests in its own order: 3 red, 2 yellow, 1 light blue, 0 none.
+--- It never falls as i grows, whatever the order of the thresholds.
+local function band(i, s)
+    if i >= s.hot then return 3 end
+    if i >= s.thrMid then return 2 end
+    if i >= s.thrLow then return 1 end
     return 0
 end
 
 --- A 0-based ns.GRID grid -> the 0-based FINE_GRID grid, bilinear between cell centres (an edge cell repeats past
---- the edge), each fine cell raised to the floor of its own 100-cell's band (settings s). Only cells above 0.
+--- the edge). A fine cell whose value falls in a lower band than its own 100-cell's (settings s) takes that
+--- cell's q, so its band is the same by the same tests, with no rounding in between. Only cells above 0.
 function ns.Upsample(md, s)
     local from, to = ns.GRID, ns.FINE_GRID
     local k = to / from
@@ -92,10 +95,7 @@ function ns.Upsample(md, s)
                         local val = (1 - tx) * (1 - ty) * q(ux, vy) + tx * (1 - ty) * q(ux + 1, vy)
                             + (1 - tx) * ty * q(ux, vy + 1) + tx * ty * q(ux + 1, vy + 1)
                         local parent = q(floor(jx / k), floor(jy / k))
-                        if parent > 0 then
-                            local f = bandFloor(parent / 100, s) * 100
-                            if val < f then val = f end
-                        end
+                        if parent > val and band(val / 100, s) < band(parent / 100, s) then val = parent end
                         if val > 0 then
                             local o = out[jx]
                             if not o then o = {}; out[jx] = o end

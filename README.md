@@ -63,8 +63,8 @@ NAGDeathData = {
   next = 1792540800, rows = 231, contributors = 5,
   flavor = "camelot",
   map = { [uiMapID] = { [x] = { [y] = q } } },   -- a 100 x 100 grid per map, q 1..100
-  fine = { grid = 200, cellBase = 0, levels = 64,  -- optional (proposed): finer cells for the world map
-           [uiMapID] = "x,y,cells;x,y,cells;..." },
+  fine = { grid = 200, cellBase = 0, levels = 64,  -- optional: finer cells (14 days, a per-cell floor)
+           [uiMapID] = { "packed runs", ... } },
   -- killers, bands, instances and any other field: ignored by the addon
 }
 ```
@@ -72,18 +72,19 @@ NAGDeathData = {
 - **The cell base.** The server bins a map position 0..10000 as `x * 100 // 10001`, so its cells are 0..99.
   The file states its base in `cellBase`; when the field is absent the addon reads cells as 1..100 (the
   first contract). The side that writes the file must state the base.
-- **The world map draws 200 x 200 per map.** From `map`, each cell is upsampled bilinearly between cell
-  centres, and a fine cell is never drawn under its own cell's colour band, so the radar's red stays red on the
-  map. Touching cells of one colour along a row are one texture; past 2,500 textures the picture is folded to
+- **The world map draws 200 x 200 per map.** From `fine` where the file has it for the map; else from `map`,
+  each cell upsampled bilinearly between cell centres, a fine cell never drawn in a lower colour band than its
+  own cell's (it takes that cell's q there), so the radar's red stays red on the map. Touching cells of one colour along a row are one texture; past 2,500 textures the picture is folded to
   100, 50 or 25 per side, keeping each square's hottest cell.
-- **`fine`, optional (proposed to the server; none sends it yet).** Finer cells for the world map only: the
-  radar and older copies keep reading `map`, which stays. `grid` is the cells per side (200..400),
-  `cellBase` 0 or 1 (0 when absent), `levels` the q steps (2..64, 64 when absent). One string per map:
-  segments joined by `;`, each the column `x`, the first row `y` and one character per cell at rows `y`,
-  `y+1`, ...; a character's position `p` in `A-Z a-z 0-9 - _` is level `p + 1`, read as
-  `q = 100 * (p + 1) / levels`. A gap starts a new segment. A bad `fine` is ignored whole; a map whose string
-  breaks the rules is ignored alone and draws from `map`. `tools/make_fixtures.py` (`encode_fine`) is the
-  reference encoder.
+- **`fine`, optional (the server's, Tools PR #1142).** `grid` is the cells per side (200..400), `cellBase`
+  0 or 1 (0 when absent), `levels` 2..64 (64 when absent): a cell's level is 1..levels - 1, the map's hottest
+  cell is levels - 1, read as `q = 100 * level / (levels - 1)`. Each map is a list of strings of whole runs
+  along a row: `Y` (2 characters), `X` (2), `N` (1), then `N` level characters for the cells `x .. x+N-1` of
+  row `y`; level 0 is an empty cell. Every character is a base64 digit (`A-Z a-z 0-9 + /`, its index is its
+  value; two-digit numbers high digit first). Where a map has `fine`, the radar reads it too, folded to 100
+  per side (each cell its hottest fine cell), so a cell the radar calls hot holds a fine cell drawn red, and
+  both keep the server's per-cell floor; `map` stays for older copies and for maps `fine` leaves out. A bad
+  `fine` is ignored whole; a map whose strings break the rules is ignored alone and falls back to `map`.
 - **Unknown fields are ignored**, so the server can add fields without an addon update.
 - **"No data yet"** is one state for every unusable file: missing, `NAGDeathData` nil, another `v`, a
   `map` that is not a table or holds no valid cell, or a bad `cellBase`. Nothing errors and nothing ticks.
@@ -115,6 +116,9 @@ the `fine` decoder, the row runs and the cap, the shared edges), the slash comma
 ```
 python3 -I tools/make_fixtures.py --tools-repo <a NextActionGuide-Tools clone> [--rev origin/main]
 ```
+
+`nagdeath_fine.lua` needs a revision with the server's `fine()` (Tools PR #1142 and after); a revision
+without it leaves that fixture as it is.
 
 The radar's hot ring, `Media/HotRing.tga`, is ours: `python3 -I tools/make_hotring.py` writes it.
 
