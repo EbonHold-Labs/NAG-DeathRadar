@@ -310,25 +310,36 @@ function ns.Color(i, s)
     if i >= s.thrLow then return 0, 0.8, 1, 0.3 + 0.6 * i end
 end
 
-ns.MAP_RED_FLOOR = 0.4
+ns.MAP_RED_FLOOR = 0.5
 ns.MAP_RAMP_STEPS = 24 -- shades under hot: enough to blend, few enough that touching cells share a texture
-ns.MAP_RED_STEPS = 8   -- alpha steps of red, from MAP_RED_FLOOR to 0.7
+ns.MAP_RED_STEPS = 8   -- shades of red from hot, orange-red to deep red
 
--- The ramp's colours under hot (Rakizi, 2026-10-20: three flat bands read as stair-steps, and the low blue as a
--- blanket): a light blue haze at thrLow, yellow at thrMid, orange-red just under hot.
-local RAMP = { { 0.35, 0.75, 1 }, { 1, 0.95, 0.2 }, { 1, 0.3, 0.05 } }
-local RAMP_A_LOW, RAMP_A_HOT = 0.05, 0.38 -- alpha at thrLow and just under hot
+-- The ramp's colours under hot (Rakizi, 2026-10-20: three flat bands read as stair-steps, the low blue as a
+-- blanket; then, in game, yellow vanished on the Barrens' and Durotar's yellow-brown ground while a flat red
+-- dominated): a light blue at thrLow, a teal-green halfway to thrMid (a straight blue-to-gold blend goes a
+-- muddy grey there, lost on tan ground), a deeper gold at thrMid, orange just under hot, the alpha rising
+-- linearly from a faint 0.18 to 0.5, so the middle (gold, about 0.34) still reads on yellow-brown terrain.
+-- Each stop sits at a quarter of the ramp; thrMid is at its middle.
+local RAMP = { { 0.35, 0.75, 1 }, { 0.3, 0.85, 0.55 }, { 1, 0.78, 0.08 }, { 1, 0.62, 0.06 }, { 1, 0.45, 0.05 } }
+local RAMP_A_LOW, RAMP_A_HOT = 0.18, 0.5
+-- Red from hot: orange-red at hot to deep red at the map's hottest, the alpha 0.5 to 0.75. Never blue, green at
+-- most 0.2: the red family, which the ramp under hot (green 0.45 and more, some blue) never reaches.
+local RED_LO, RED_HI = { 1, 0.2, 0 }, { 0.8, 0, 0 }
+local RED_A_HI = 0.75
 
 --- The world map's colour for intensity i: nil under thrLow; from thrLow to hot a ramp of MAP_RAMP_STEPS shades
---- (light blue to yellow at thrMid to orange-red), alpha fading in from a haze; from hot (ns.Color's own test)
---- pure red, MAP_RED_STEPS alphas from MAP_RED_FLOOR to 0.7. Times the mapAlpha setting. The fifth value names the
---- step: equal steps are equal colours. Thresholds in any order: where thrMid is not between thrLow and hot, the
---- ramp goes straight from blue to orange-red.
+--- (light blue, teal-green, gold at thrMid, orange), the alpha rising linearly; from hot (ns.Color's own test, so a cell
+--- the radar calls hot is red on the map) the red family in MAP_RED_STEPS shades, orange-red to deep red, alpha
+--- MAP_RED_FLOOR to 0.75. Times the mapAlpha setting. The fifth value names the step: equal steps are equal
+--- colours. Thresholds in any order: where thrMid is not between thrLow and hot, the ramp goes straight from
+--- blue to orange.
 function ns.MapColor(i, s)
     if i >= s.hot then
         local u = s.hot < 1 and (math.min(i, 1) - s.hot) / (1 - s.hot) or 0
         local k = math.min(ns.MAP_RED_STEPS - 1, floor(u * ns.MAP_RED_STEPS))
-        return 1, 0, 0, (ns.MAP_RED_FLOOR + 0.3 * (k + 0.5) / ns.MAP_RED_STEPS) * s.mapAlpha, 1000 + k
+        local w = (k + 0.5) / ns.MAP_RED_STEPS
+        return RED_LO[1] + (RED_HI[1] - RED_LO[1]) * w, RED_LO[2] + (RED_HI[2] - RED_LO[2]) * w, 0,
+            (ns.MAP_RED_FLOOR + (RED_A_HI - ns.MAP_RED_FLOOR) * w) * s.mapAlpha, 1000 + k
     end
     if i < s.thrLow then return nil end
     local lo, mid, hot = s.thrLow, s.thrMid, s.hot
@@ -341,10 +352,10 @@ function ns.MapColor(i, s)
     local n = ns.MAP_RAMP_STEPS
     local k = math.max(0, math.min(n - 1, floor(t * n)))
     local tq = (k + 0.5) / n
-    local a, b, w = RAMP[1], RAMP[2], tq * 2
-    if tq >= 0.5 then a, b, w = RAMP[2], RAMP[3], tq * 2 - 1 end
+    local seg = math.min(#RAMP - 1, floor(tq * (#RAMP - 1)) + 1)
+    local a, b, w = RAMP[seg], RAMP[seg + 1], tq * (#RAMP - 1) - (seg - 1)
     return a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w, a[3] + (b[3] - a[3]) * w,
-        (RAMP_A_LOW + (RAMP_A_HOT - RAMP_A_LOW) * tq ^ 1.5) * s.mapAlpha, k
+        (RAMP_A_LOW + (RAMP_A_HOT - RAMP_A_LOW) * tq) * s.mapAlpha, k
 end
 
 -- ============================ slash ============================

@@ -4,8 +4,8 @@ A small, free World of Warcraft addon from the Next Action Guide team. It shows 
 levelling:
 
 - a **heatmap on the world map**: the danger zones of the open map in a smooth colour ramp, from a faint light
-  blue haze at 0.02 through yellow at 0.10 to orange-red, then red from the `threshold` setting, the radar's own
-  red, so a cell the radar points at is red on the map too;
+  blue at 0.02 through teal-green and gold at 0.10 to orange, then reds from the `threshold` setting (the
+  radar's own red line), deepening with the danger, so a cell the radar points at is red on the map too;
   drawn 200 x 200 per map at every zoom, smoothed between cells (the file's `fine` cells where it has them);
   lighter than on the radar so the map art reads through, with its own opacity (`/ndr alpha`) and an on/off box on the map;
 - a **radar** that turns with you (the direction you face is up), shows the death cells around you and
@@ -76,7 +76,8 @@ NAGDeathData = {
 - **The world map draws 200 x 200 per map.** From `fine` where the file has it for the map; else from `map`,
   each cell upsampled bilinearly between cell centres; a fine cell of a cell the radar calls hot that smooths
   under the threshold takes that cell's q, so the radar's red stays red on the map. The colours are a ramp of 24
-  shades under the threshold (alpha fading in from a haze) and 8 alphas of red above it. Touching cells of one
+  shades under the threshold (light blue, teal-green, gold, orange; the alpha rising from 0.18 to 0.5) and 8
+  shades of red above it (orange-red to deep red, alpha 0.5 to 0.75). Touching cells of one
   shade along a row are one texture; past 2,500 textures the picture is folded to 100, 50 or 25 per side,
   keeping each square's hottest cell.
 - **`fine`, optional (the server's, Tools PR #1142).** `grid` is the cells per side (200, 300 or 400), `cellBase`

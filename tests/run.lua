@@ -265,6 +265,10 @@ local function loneInner(q)
 end
 
 
+--- The map's red family (ns.MapColor from hot): orange-red to deep red, no blue. The ramp under hot never is.
+local function redFamily(r, g, b) return r ~= nil and r >= 0.8 and g <= 0.2 and b == 0 end
+local function isMapRed(c) return c ~= nil and redFamily(c[1], c[2], c[3]) end
+
 test("rebucket from any grid, same-colour runs per row and the texture cap", function()
     local ns = boot(false)
     local md = { [0] = { [0] = 10 }, [3] = { [3] = 50 }, [4] = { [4] = 30 }, [99] = { [99] = 7 } }
@@ -284,7 +288,7 @@ test("rebucket from any grid, same-colour runs per row and the texture cap", fun
         [6] = { [1] = 10 }, [7] = { [2] = 50 } }, 200, s))
     eq(#runs, 4, "1..3 one run; 5 after a gap; 6 another colour; row 2 its own")
     eq(runs[1].x0, 1); eq(runs[1].x1, 3); eq(runs[2].x0, 5); eq(runs[2].x1, 5); eq(runs[3].x0, 6); eq(runs[4].y, 2)
-    eq(runs[1].r, 1); eq(runs[1].g, 0); eq(runs[1].a, select(4, ns.MapColor(0.5, s)), "the ramp's alpha")
+    assert(redFamily(runs[1].r, runs[1].g, runs[1].b), "q 50 red"); eq(runs[1].a, select(4, ns.MapColor(0.5, s)), "the ramp's alpha")
     eq(#ns.Runs({ [1] = { [1] = 50 }, [2] = { [1] = 51 } }, 200, s), 1, "q 50 and 51: one red step, one run")
     eq(#ns.Runs({ [1] = { [1] = 50 }, [2] = { [1] = 60 } }, 200, s), 2, "q 50 and 60: two red steps, two runs")
     eq(#ns.Runs({ [1] = { [1] = 1 } }, 200, s), 0, "below the low band: no run")
@@ -337,8 +341,8 @@ test("upsample: at every threshold the addon takes, a lone hot cell's own fine c
             local up = ns.Upsample({ [10] = { [10] = q } }, s)
             for jx = 20, 21 do
                 for jy = 20, 21 do
-                    local r, g = ns.MapColor(up[jx][jy] / 100, s)
-                    if not (r == 1 and g == 0) then bad[#bad + 1] = ("%s q %d"):format(s.hot, q) end
+                    local r, g, b = ns.MapColor(up[jx][jy] / 100, s)
+                    if not redFamily(r, g, b) then bad[#bad + 1] = ("%s q %d"):format(s.hot, q) end
                 end
             end
         end
@@ -439,7 +443,7 @@ test("map colours: a ramp from a faint blue haze to orange-red under hot, red fr
         local i = k / 1000
         local r, g, b, a, step = ns.MapColor(i, s)
         assert(r, "drawn at " .. i)
-        assert(not (r == 1 and g == 0 and b == 0), "not red under hot: " .. i)
+        assert(not redFamily(r, g, b), "not red under hot: " .. i)
         assert(a >= lastA, ("alpha never falls: %s at %s after %s"):format(a, i, lastA)); lastA = a
         assert(step >= lastStep, "steps rise with i"); lastStep = step
         shades[step] = shades[step] or { r, g, b, a }
@@ -451,17 +455,23 @@ test("map colours: a ramp from a faint blue haze to orange-red under hot, red fr
     eq(n, ns.MAP_RAMP_STEPS, "every shade of the ramp under hot")
     assert(ns.MAP_RAMP_STEPS >= 16, "enough shades to read smooth")
     local r, g, b, a = ns.MapColor(0.02, s)
-    assert(b > r and a < 0.1, ("the faintest cell is a light blue haze: %s %s %s %s"):format(r, g, b, a))
-    r, g, b = ns.MapColor(0.10, s)
-    assert(r > 0.9 and g > 0.8 and b < 0.4, "yellow where the radar turns yellow")
+    assert(b > r and a >= 0.15 and a <= 0.22, ("the faintest cell: light blue, faint but seen: %s %s %s %s"):format(r, g, b, a))
+    r, g, b, a = ns.MapColor(0.10, s)
+    assert(r > 0.9 and g > 0.7 and g < 0.9 and b < 0.2, ("gold where the radar turns yellow: %s %s %s"):format(r, g, b))
+    assert(a >= 0.3 and a <= 0.37, "gold at about a third: it reads on yellow-brown ground, alpha " .. a)
     r, g, b = ns.MapColor(0.249, s)
-    assert(r == 1 and g < 0.5, "orange-red just under hot")
-    local redA = 0
+    assert(r == 1 and g > 0.35 and g < 0.55, ("orange just under hot: %s %s %s"):format(r, g, b))
+    local redA, redR, redG = 0, 1, 1
     for k = 250, 1000, 5 do
         local rr, gg, bb, aa = ns.MapColor(k / 1000, s)
-        assert(rr == 1 and gg == 0 and bb == 0, "red from hot: " .. k / 1000)
-        assert(aa >= 0.4 and aa >= redA, "red at least at its floor, never fading as i grows"); redA = aa
+        assert(redFamily(rr, gg, bb), "red from hot: " .. k / 1000)
+        assert(aa >= 0.5 and aa >= redA, "red at least at its floor, never fading as i grows"); redA = aa
+        assert(rr <= redR and gg <= redG, "red deepens as i grows"); redR, redG = rr, gg
     end
+    r, g = ns.MapColor(0.25, s)
+    assert(g >= 0.15, "orange-red at hot")
+    r, g, b, a = ns.MapColor(1, s)
+    assert(r <= 0.85 and g <= 0.02 and a >= 0.7, ("deep red at q 100: %s %s %s %s"):format(r, g, b, a))
     s.mapAlpha = 0.5
     local _, _, _, half = ns.MapColor(0.5, s)
     s.mapAlpha = 1
@@ -472,7 +482,7 @@ test("map colours: a ramp from a faint blue haze to orange-red under hot, red fr
         for k = 0, 1000, 7 do
             local rr, gg, bb = ns.MapColor(k / 1000, s)
             local wantRed = k / 1000 >= s.hot
-            if rr then eq(rr == 1 and gg == 0 and bb == 0, wantRed, ("order %s/%s/%s at %s"):format(order[1], order[2], order[3], k / 1000))
+            if rr then eq(redFamily(rr, gg, bb), wantRed, ("order %s/%s/%s at %s"):format(order[1], order[2], order[3], k / 1000))
             else assert(not wantRed, "a hot cell is drawn") end
         end
     end
@@ -749,12 +759,12 @@ test("overlay: a hot cell reads red on the map at every zoom, where the radar po
         for jx = 90, 91 do
             for jy = 56, 57 do
                 local sq = assert(cellTex(jx, jy), ("zoom %s: hot fine cell %d,%d drawn"):format(z, jx, jy))
-                assert(isRed(sq._color), ("zoom %s: fine %d,%d red, got %s %s %s"):format(z, jx, jy, sq._color[1], sq._color[2], sq._color[3]))
-                assert(sq._color[4] >= 0.4, "at least red's floor, alpha " .. sq._color[4])
+                assert(isMapRed(sq._color), ("zoom %s: fine %d,%d red, got %s %s %s"):format(z, jx, jy, sq._color[1], sq._color[2], sq._color[3]))
+                assert(sq._color[4] >= 0.5, "at least red's floor, alpha " .. sq._color[4])
             end
         end
         local quiet = cellTex(62, 32)
-        assert(quiet and not isRed(quiet._color), "zoom " .. z .. ": a q-5 cell is not red")
+        assert(quiet and not isMapRed(quiet._color), "zoom " .. z .. ": a q-5 cell is not red")
     end
 end)
 
@@ -788,7 +798,7 @@ test("fine: the radar reads the fine cells folded to its grid, so its hot cells 
                     for jx = 2 * ix, 2 * ix + 1 do
                         for jy = 2 * iy, 2 * iy + 1 do
                             local tex = cellTex(jx, jy)
-                            if tex and isRed(tex._color) then red = true end
+                            if tex and isMapRed(tex._color) then red = true end
                         end
                     end
                     assert(red, ("map %d: the radar's hot cell %d,%d has a red fine cell on the map"):format(m, ix, iy))
@@ -805,22 +815,22 @@ test("overlay: a threshold changed past the 14th digit redraws the picture", fun
     local ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = { [10] = { [10] = 25 } } } })
     S.mapID = ELWYNN
     WorldMapFrame:OnMapChanged()
-    assert(isRed(cellTex(20, 20)._color), "q 25 red at 0.25")
+    assert(isMapRed(cellTex(20, 20)._color), "q 25 red at 0.25")
     SlashCmdList.NAGDEATHRADAR("threshold 0.250000000000001")
     local want = { ns.Color(0.25, NAGDeathRadarSettings) }
     eq(want[2], 1, "ns.Color (the radar) calls 0.25 yellow now")
     local tex = cellTex(20, 20)
-    assert(tex and not isRed(tex._color), "the map follows: not red, not the cached red")
+    assert(tex and not isMapRed(tex._color), "the map follows: not red, not the cached red")
     -- The other way: drawn first at 0.250000000000001, the upsample does not lift q 25 (yellow there); at 0.25 the
     -- upsample must be built again, lifted, red.
     ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = { [10] = { [10] = 25 } } } }, { saved = { hot = 0.250000000000001 } })
     S.mapID = ELWYNN
     WorldMapFrame:OnMapChanged()
     tex = cellTex(20, 20)
-    assert(tex and not isRed(tex._color), "q 25 not red at 0.250000000000001")
+    assert(tex and not isMapRed(tex._color), "q 25 not red at 0.250000000000001")
     SlashCmdList.NAGDEATHRADAR("threshold 0.25")
     tex = cellTex(20, 20)
-    assert(tex and isRed(tex._color), "at 0.25: red, not the cached unlifted grid")
+    assert(tex and isMapRed(tex._color), "at 0.25: red, not the cached unlifted grid")
 end)
 
 test("overlay: red on the map exactly where the radar calls a lone cell hot, for q 1, 9, 10, 24, 25, 100", function()
@@ -839,7 +849,7 @@ test("overlay: red on the map exactly where the radar calls a lone cell hot, for
             else
                 assert(sq, "q " .. q .. " drawn")
                 for k = 1, 4 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
-                eq(isRed(sq._color), q >= 25, "q " .. q .. ": red exactly when the radar calls it hot")
+                eq(isMapRed(sq._color), q >= 25, "q " .. q .. ": red exactly when the radar calls it hot")
             end
         end
     end
@@ -851,9 +861,9 @@ test("overlay and radar: a changed hot threshold moves both", function()
     standAt(ELWYNN, 45, 28, 0)
     S.mapID, S.zoom = ELWYNN, 1
     WorldMapFrame:OnMapChanged()
-    assert(isRed(cellTex(90, 56)._color), "map: red at 0.25")
+    assert(isMapRed(cellTex(90, 56)._color), "map: red at 0.25")
     SlashCmdList.NAGDEATHRADAR("threshold 0.4")
-    assert(not isRed(cellTex(90, 56)._color), "map: no longer red at 0.4")
+    assert(not isMapRed(cellTex(90, 56)._color), "map: no longer red at 0.4")
     ns.Radar.Paint()
     local blip
     for i = 1, ns.Radar.BlipCount() do
@@ -864,7 +874,7 @@ test("overlay and radar: a changed hot threshold moves both", function()
     assert(isYellow(blip.tex._vertex), "radar: yellow at 0.4")
     eq(ns.Radar.Pointer().tex:IsShown(), false, "radar: no hot cell left")
     SlashCmdList.NAGDEATHRADAR("threshold 0.25")
-    assert(isRed(cellTex(90, 56)._color), "map: red again")
+    assert(isMapRed(cellTex(90, 56)._color), "map: red again")
     ns.Radar.Paint()
     assert(isRed(blip.tex._vertex), "radar: red again")
 end)
@@ -883,14 +893,14 @@ test("overlay: each lone cell draws its ramp colour; red never under its floor",
         if want[1] then
             assert(sq, "q " .. q)
             for k = 1, 4 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
-            if isRed(sq._color) then assert(sq._color[4] >= 0.4, "red floor") end
+            if isMapRed(sq._color) then assert(sq._color[4] >= 0.5, "red floor") end
         else
             eq(sq, nil, "q " .. q .. " smoothed under the low band")
         end
     end
     SlashCmdList.NAGDEATHRADAR("threshold 0.05") -- red from q 5: q 9 is hot, its fine cells lifted to red
     local sq = cellTex(40, 40)
-    assert(isRed(sq._color) and sq._color[4] >= 0.4, "q 9 red at its floor")
+    assert(isMapRed(sq._color) and sq._color[4] >= 0.5, "q 9 red at its floor")
 end)
 
 test("overlay: /ndr alpha scales the map squares only, refuses nan, inf and out of range, and persists", function()

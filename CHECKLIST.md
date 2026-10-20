@@ -22,7 +22,8 @@ deaths with the server's `fine` field (200 per side): swap it in to see the map 
 
 ## 3. The heatmap (with the fixture)
 - [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows the heat as a smooth ramp, a
-      faint light blue haze through yellow and orange to red, with no hard steps between shades; the red is
+      faint light blue through teal-green, gold and orange to reds that deepen with the danger, with no hard
+      steps between shades; the gold still reads on the Barrens' and Durotar's yellow-brown ground; the red is
       where the radar's red is.
 - [ ] The squares sit over the map art and the explored-area art, BELOW the pins (flight points, quest
       markers) and the player arrow.
