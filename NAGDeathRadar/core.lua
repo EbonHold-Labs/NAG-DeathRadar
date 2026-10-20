@@ -22,6 +22,21 @@ function ns.IsSecret(v)
     return test ~= nil and test(v) == true
 end
 
+--- True when the game tooltip belongs to `owner`: IsOwned, else GetOwner.
+function ns.TooltipOwnedBy(owner)
+    local T = _G.GameTooltip
+    if type(T) ~= "table" then return false end
+    if type(T.IsOwned) == "function" then
+        local ok, v = pcall(T.IsOwned, T, owner)
+        return ok and v == true
+    end
+    if type(T.GetOwner) == "function" then
+        local ok, o = pcall(T.GetOwner, T)
+        return ok and o == owner
+    end
+    return false
+end
+
 function ns.InCombat()
     local f = _G.InCombatLockdown
     if type(f) ~= "function" then return false end
@@ -34,6 +49,7 @@ end
 ns.defaults = {
     radar = true,      -- the radar is shown
     overlay = true,    -- the heatmap on the world map
+    mapAlpha = 1,      -- the heatmap's opacity, a multiplier on its squares only (the radar keeps its own)
     locked = false,    -- the radar cannot be dragged
     rimTint = true,    -- the radar's rim turns red while the player stands in a hot cell
     art = true,        -- Fonsas's ring and grid art over the plain rim and field
@@ -48,7 +64,8 @@ ns.defaults = {
 }
 
 -- Numbers outside these bounds come back from the defaults.
-ns.RANGES = { scale = { 0.5, 2 }, yards = { 30, 300 }, hot = { 0.05, 1 }, thrLow = { 0, 1 }, thrMid = { 0, 1 } }
+ns.RANGES = { scale = { 0.5, 2 }, yards = { 30, 300 }, hot = { 0.05, 1 }, thrLow = { 0, 1 }, thrMid = { 0, 1 },
+    mapAlpha = { 0.1, 1 } }
 -- Settings that take one of a list (the art files under Media/).
 ns.CHOICES = { ring = { 1, 2, 8, 10 }, grid = { 1, 2 } }
 
@@ -188,12 +205,25 @@ function ns.Q(mapData, ix, iy)
 end
 
 --- The danger colours, ONE scale for the radar and the world map: light blue / yellow / red by the settings'
---- bands, alpha growing with intensity i (q / 100) inside a band; nil below thrLow. Red (i >= hot) starts at
---- 0.5 + 0.3 * hot (0.575 at the default 0.25), so it reads over the map art.
+--- bands, alpha growing with intensity i (q / 100) inside a band; nil below thrLow. This alpha is the radar's:
+--- red (i >= hot) starts at 0.5 + 0.3 * hot (0.575 at the default 0.25).
 function ns.Color(i, s)
     if i >= s.hot then return 1, 0, 0, 0.5 + 0.3 * math.min(i, 1) end
     if i >= s.thrMid then return 1, 1, 0, 0.3 + 0.6 * i end
     if i >= s.thrLow then return 0, 0.8, 1, 0.3 + 0.6 * i end
+end
+
+ns.MAP_RED_FLOOR = 0.4
+
+--- The world map's colour for intensity i: the same bands (ns.Color), at the lighter weight the map's first
+--- ramp had, 0.25 + 0.45 * i, so the map art reads through; red never under MAP_RED_FLOOR. Times the mapAlpha
+--- setting. nil below thrLow.
+function ns.MapColor(i, s)
+    local r, g, b = ns.Color(i, s)
+    if not r then return nil end
+    local a = 0.25 + 0.45 * math.min(i, 1)
+    if i >= s.hot and a < ns.MAP_RED_FLOOR then a = ns.MAP_RED_FLOOR end
+    return r, g, b, a * s.mapAlpha
 end
 
 -- ============================ slash ============================
@@ -203,12 +233,12 @@ local function onOff(arg, cur)
     return not cur
 end
 
-local NUMBERS = { scale = "scale", range = "yards", threshold = "hot" }
+local NUMBERS = { scale = "scale", range = "yards", threshold = "hot", alpha = "mapAlpha" }
 
 ns.HELP = {
     "/ndr show | hide: the radar",
     "/ndr lock: lock or unlock the radar (drag it with Alt held)",
-    "/ndr map [on|off]: the heatmap on the world map",
+    "/ndr map [on|off]: the heatmap on the world map (also the Deaths box on the map), alpha 0.1-1: its opacity",
     "/ndr tint [on|off]: the rim turns red where you stand in a hot cell",
     "/ndr art [on|off], ring 1|2|8|10, grid 1|2 (1 green, 2 blue): the radar's look",
     "/ndr scale 0.5-2, range 30-300 (yards), threshold 0.05-1 (hot from this intensity)",

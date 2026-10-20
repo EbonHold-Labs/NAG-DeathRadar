@@ -460,23 +460,9 @@ function R.ApplyLook(s)
     frame.dist:SetPoint("TOP", frame, "CENTER", 0, -edge - 2)
 end
 
---- True when the game tooltip is the radar's own: a modifier change or a leave never hides another owner's.
-local function tooltipIsOurs()
-    local T = _G.GameTooltip
-    if type(T) ~= "table" then return false end
-    if type(T.IsOwned) == "function" then
-        local ok, v = pcall(T.IsOwned, T, frame)
-        return ok and v == true
-    end
-    if type(T.GetOwner) == "function" then
-        local ok, o = pcall(T.GetOwner, T)
-        return ok and o == frame
-    end
-    return false
-end
-
+--- A modifier change or a leave hides the tooltip only when it is the radar's own, never another owner's.
 local function hideTooltip()
-    if tooltipIsOurs() then GameTooltip:Hide() end
+    if ns.TooltipOwnedBy(frame) then GameTooltip:Hide() end
 end
 
 local function showTooltip()

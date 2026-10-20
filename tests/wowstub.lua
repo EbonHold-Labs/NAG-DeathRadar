@@ -12,7 +12,7 @@ local PROBED = { CreateMaskTexture = true, GetCanvas = true, GetCanvasContainer 
     GetScaleForMinZoom = true, GetScaleForMaxZoom = true,
     GetPinFrameLevelsManager = true, OnMapChanged = true, OnCanvasScaleChanged = true }
 
-local REGION, FRAME, CHECK, BUTTON, TEXTURE, MASK, FONT, TOOLTIP = {}, {}, {}, {}, {}, {}, {}, {}
+local REGION, FRAME, CHECK, BUTTON, SLIDER, TEXTURE, MASK, FONT, TOOLTIP = {}, {}, {}, {}, {}, {}, {}, {}, {}
 
 local function new(kind, parent)
     local o = { _kind = kind, _shown = true, _scripts = {}, _parent = parent, _w = nil, _h = nil }
@@ -71,7 +71,18 @@ function FRAME:EnableMouse(v) self._mouse = v and true or false end
 function FRAME:RegisterForDrag() end
 function FRAME:StartMoving() self._moving = true end
 function FRAME:StopMovingOrSizing() self._moving = false end
-for k, v in pairs(FRAME) do CHECK[k] = v; BUTTON[k] = v end
+for k, v in pairs(FRAME) do CHECK[k] = v; BUTTON[k] = v; SLIDER[k] = v end
+function SLIDER:SetMinMaxValues(lo, hi) self._min, self._max = lo, hi end
+function SLIDER:SetValueStep(v) self._step = v end
+function SLIDER:SetObeyStepOnDrag(v) self._obey = v end
+-- As the client does: a new value fires OnValueChanged (userInput false when set by code).
+function SLIDER:SetValue(v)
+    local changed = v ~= self._value
+    self._value = v
+    local f = self._scripts.OnValueChanged
+    if changed and f then f(self, v, false) end
+end
+function SLIDER:GetValue() return self._value end
 function BUTTON:SetText(t) self._text = t end
 function BUTTON:GetText() return self._text end
 function CHECK:SetChecked(v) self._checked = v and true or false end
@@ -114,6 +125,7 @@ function S.reset(opts)
     S.minScale, S.maxScale = 0.5, 2 -- the open map's zoom scales; equal on a map that cannot zoom
     S.player = { map = nil, x = nil, y = nil, facing = 0, alt = false, combat = false }
     S.panels, S.opened = {}, {}
+    S.sliderTemplate = opts.sliderTemplate ~= false -- false: a client without UISliderTemplateWithLabels
 
     _G.NAGDeathData, _G.NAGDeathRadarSettings = nil, nil
     _G.UIParent = new(FRAME)
@@ -122,8 +134,19 @@ function S.reset(opts)
     _G.SlashCmdList = {}
     _G.print = function(...) table.insert(S.prints, table.concat({ ... }, " ")) end
     _G.date = os.date
-    _G.CreateFrame = function(kind, _, parent)
-        return new(kind == "CheckButton" and CHECK or kind == "Button" and BUTTON or FRAME, parent)
+    _G.CreateFrame = function(kind, _, parent, template)
+        if kind == "Slider" then
+            if template ~= "UISliderTemplateWithLabels" or not S.sliderTemplate then
+                error("CreateFrame: Couldn't find inherited node \"" .. tostring(template) .. "\"")
+            end
+            local sl = new(SLIDER, parent)
+            sl.Text, sl.Low, sl.High = new(FONT, sl), new(FONT, sl), new(FONT, sl)
+            S.lastTemplate = template
+            return sl
+        end
+        local o = new(kind == "CheckButton" and CHECK or kind == "Button" and BUTTON or FRAME, parent)
+        o._template = template
+        return o
     end
     _G.hooksecurefunc = function(t, name, f)
         local old = t[name]

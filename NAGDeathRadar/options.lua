@@ -24,6 +24,16 @@ local CYCLES = {
     { "grid", "Grid", { [1] = "green", [2] = "blue" } },
 }
 
+local ALPHA_STEPS = { 0.4, 0.6, 0.8, 1 }
+
+--- The map opacity step after `cur`, wrapping round (the panel's button where the client has no slider).
+function ns.NextStep(cur)
+    for _, v in ipairs(ALPHA_STEPS) do
+        if v > cur + 1e-9 then return v end
+    end
+    return ALPHA_STEPS[1]
+end
+
 --- The next choice after `cur` in the setting's list, wrapping round.
 function ns.NextChoice(key, cur)
     local list = ns.CHOICES[key]
@@ -34,6 +44,7 @@ function ns.NextChoice(key, cur)
 end
 
 local panel, category, registeredWith
+local settingSlider -- true while the code sets the slider: its OnValueChanged then changes nothing
 
 function ns.RefreshPanel()
     if not panel then return end
@@ -42,6 +53,15 @@ function ns.RefreshPanel()
     for _, it in ipairs(CYCLES) do
         local v = s[it[1]]
         panel.cycles[it[1]]:SetText(("%s: %s"):format(it[2], it[3] and it[3][v] or tostring(v)))
+    end
+    local pct = ("Map opacity: %d%%"):format(math.floor(s.mapAlpha * 100 + 0.5))
+    if panel.mapAlpha then
+        settingSlider = true
+        panel.mapAlpha:SetValue(s.mapAlpha)
+        settingSlider = false
+        panel.mapAlpha.Text:SetText(pct)
+    elseif panel.mapAlphaStep then
+        panel.mapAlphaStep:SetText(pct)
     end
     panel.status:SetText(ns.StatusLine())
 end
@@ -82,7 +102,39 @@ function ns.BuildPanel()
         end)
         panel.cycles[key] = b
     end
-    local y = -40 - (#BOXES + 2) * 30
+    -- The map opacity: a slider (UISliderTemplateWithLabels, in every target client's shared templates); a
+    -- client without it, found at run time, gets a button that steps through ALPHA_STEPS.
+    local rowY = -40 - (#BOXES + 2) * 30 - 14
+    local okSlider, sl = pcall(CreateFrame, "Slider", nil, panel, "UISliderTemplateWithLabels")
+    if okSlider and type(sl) == "table" and type(sl.SetMinMaxValues) == "function" and sl.Text then
+        sl:SetWidth(200)
+        sl:SetPoint("TOPLEFT", panel, "TOPLEFT", 24, rowY)
+        sl:SetMinMaxValues(0.1, 1)
+        sl:SetValueStep(0.05)
+        if type(sl.SetObeyStepOnDrag) == "function" then sl:SetObeyStepOnDrag(true) end
+        if sl.Low then sl.Low:SetText("10%") end
+        if sl.High then sl.High:SetText("100%") end
+        sl:SetValue(NAGDeathRadarSettings.mapAlpha)
+        sl:SetScript("OnValueChanged", function(_, value, userInput)
+            if settingSlider or userInput == false then return end -- set by /ndr alpha or a refresh, not dragged
+            value = math.floor(value * 20 + 0.5) / 20 -- the 0.05 steps
+            local r = ns.RANGES.mapAlpha
+            if value ~= value or value < r[1] or value > r[2] or value == NAGDeathRadarSettings.mapAlpha then return end
+            NAGDeathRadarSettings.mapAlpha = value
+            ns.Apply()
+        end)
+        panel.mapAlpha = sl
+    else
+        local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        b:SetSize(160, 22)
+        b:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, rowY)
+        b:SetScript("OnClick", function()
+            NAGDeathRadarSettings.mapAlpha = ns.NextStep(NAGDeathRadarSettings.mapAlpha)
+            ns.Apply()
+        end)
+        panel.mapAlphaStep = b
+    end
+    local y = rowY - 40
     for _, line in ipairs(ns.HELP) do
         local t = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         t:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, y)

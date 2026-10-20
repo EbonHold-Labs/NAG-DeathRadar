@@ -60,7 +60,7 @@ function ns.CappedBuckets(mapData, n, cap)
     return b, n, count
 end
 
-local layer, label
+local layer, label, toggle
 local pool, used = {}, 0
 local lastMap, lastN
 
@@ -121,11 +121,12 @@ function O.Redraw(force)
     say(nil)
     local buckets, drawn = ns.CappedBuckets(md, n, O.CAP)
     local cw, ch = layer:GetWidth() / drawn, layer:GetHeight() / drawn
-    -- The radar's own bands (ns.Color): a square that holds a hot cell (the max is kept) is the same red the
-    -- radar points at, at every zoom; below the low band nothing is drawn, as on the radar.
+    -- The radar's own bands (ns.MapColor: ns.Color's colours at the map's lighter weight): a square that holds a
+    -- hot cell (the max is kept) is the same red the radar points at, at every zoom; below the low band nothing
+    -- is drawn, as on the radar.
     for bx, col in pairs(buckets) do
         for by, q in pairs(col) do
-            local r, g, b, a = ns.Color(q / 100, s)
+            local r, g, b, a = ns.MapColor(q / 100, s)
             if r then
                 used = used + 1
                 local t = pool[used]
@@ -181,12 +182,50 @@ function O.Init()
         hooksecurefunc(W, "OnCanvasScaleChanged", function() O.Redraw() end)
     end
     W:HookScript("OnShow", function() O.Redraw(true) end)
+    O.BuildToggle(W)
 end
 
-function O.Refresh()
+local function toggleTip(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Death heatmap: " .. (NAGDeathRadarSettings.overlay and "on" or "off"))
+    GameTooltip:AddLine(ns.StatusLine(), 1, 1, 1)
+    GameTooltip:Show()
+end
+
+--- THE MAP'S OWN SWITCH: a check box in the top-right corner of the map area, a child of WorldMapFrame so it hides
+--- with the map; our frame and our SetPoint, nothing written into Blizzard's frames. It drives the same `overlay`
+--- setting as /ndr map and the panel. That corner is free on every map family the addon loads on (checked in the
+--- wow-ui-source clones): Mainline (Forever, Camelot layout) puts its floor dropdown and the tracking pin at the
+--- canvas's top LEFT and the tracking options beside the title bar; the Vanilla and TBC maps keep the dropdowns,
+--- zoom-out and close buttons in the bar above the canvas and the "zoom out" magnifier at its top left; Wrath
+--- and Cata keep the floor dropdown in that bar (maximised) or at the canvas's top left (windowed).
+function O.BuildToggle(W)
+    if toggle then return end
+    local holder = type(W.GetCanvasContainer) == "function" and W:GetCanvasContainer() or W
+    toggle = CreateFrame("CheckButton", nil, W, "UICheckButtonTemplate")
+    toggle:SetSize(24, 24)
+    toggle:SetPoint("TOPRIGHT", holder, "TOPRIGHT", -6, -6)
+    local text = toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    text:SetPoint("RIGHT", toggle, "LEFT", -2, 0)
+    text:SetText("Deaths")
+    toggle:SetScript("OnClick", function(self)
+        NAGDeathRadarSettings.overlay = self:GetChecked() and true or false
+        ns.Apply()
+        if ns.TooltipOwnedBy(self) then toggleTip(self) end
+    end)
+    toggle:SetScript("OnEnter", toggleTip)
+    toggle:SetScript("OnLeave", function(self)
+        if ns.TooltipOwnedBy(self) then GameTooltip:Hide() end
+    end)
+    toggle:SetChecked(NAGDeathRadarSettings.overlay)
+end
+
+function O.Refresh(s)
+    if toggle then toggle:SetChecked(s.overlay) end
     O.Redraw(true)
 end
 
 function ns.OverlayCount() return used end -- for the tests
 function ns.OverlayNote() return label and label:IsShown() and label.text:GetText() or nil end
 function ns.OverlayLevel() return layer and layer:GetFrameLevel() end
+function ns.MapToggle() return toggle end

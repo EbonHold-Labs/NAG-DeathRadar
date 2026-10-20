@@ -34,6 +34,17 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
 - [ ] Resize or maximise the map window: the squares stay aligned with the map.
 - [ ] A continent, or a zone without data: no squares, the note "no data for this map".
 - [ ] `/ndr map off` hides the squares and the note; `/ndr map on` brings them back.
+- [ ] The **Deaths** box sits in the top-right corner of the map area, hides with the map and overlaps none of
+      Blizzard's buttons. Check it on each client, maximised and windowed:
+  - [ ] Forever (Mainline map): clear of the tracking pin and floor dropdown (top left) and the tracking
+        options beside the title bar; above the pins.
+  - [ ] Classic Era and Anniversary (Vanilla and TBC maps): clear of the close and maximise buttons and the
+        dropdown bar above the map.
+  - [ ] Titan Reforged (Wrath map) and MoP Classic (Cata map): clear of the floor dropdown and its up/down
+        buttons, maximised (in the bar) and windowed (top left of the map).
+- [ ] Ticking the box, `/ndr map` and the panel's check box move each other, and the choice survives `/reload`.
+- [ ] At the default opacity the map art reads through the squares and red still reads red. `/ndr alpha 0.4`
+      and the panel's slider (or its step button) lighten the squares only; the radar does not change.
 - [ ] The squares near a corner of Elwynn line up with the edge (cell 99/0 is the top-right corner cell).
 
 ## 4. The radar

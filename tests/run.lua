@@ -456,7 +456,7 @@ test("overlay: a hot cell reads red on the map at every zoom, where the radar po
         local sq = squareAt(math.floor(45 * n / 100) + 1, math.floor(28 * n / 100) + 1, n)
         assert(sq, n .. " per side: the hot square is drawn")
         assert(isRed(sq._color), ("%d per side: the hot square is red, got %s %s %s"):format(n, sq._color[1], sq._color[2], sq._color[3]))
-        assert(sq._color[4] >= 0.5, n .. " per side: opaque enough to read over the map, alpha " .. sq._color[4])
+        assert(sq._color[4] >= 0.4, n .. " per side: at least red's floor, alpha " .. sq._color[4])
         local quiet = squareAt(math.floor(31 * n / 100) + 1, math.floor(16 * n / 100) + 1, n)
         assert(quiet and not isRed(quiet._color), n .. " per side: a q-5 square is not red")
     end
@@ -477,7 +477,7 @@ test("overlay: the map's bands are the radar's, for q 1, 9, 10, 24, 25, 100", fu
                 eq(sq, nil, "q " .. q .. ": below the low band, not drawn (as on the radar)")
             else
                 assert(sq, "q " .. q .. " drawn")
-                for k = 1, 4 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
+                for k = 1, 3 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
             end
         end
     end
@@ -505,6 +505,88 @@ test("overlay and radar: a changed hot threshold moves both", function()
     assert(isRed(squareAt(46, 29, 100)._color), "map: red again")
     ns.Radar.Paint()
     assert(isRed(blip.tex._vertex), "radar: red again")
+end)
+
+-- The old ramp's weight (0.25 + 0.45 q/100), red never under 0.4, times the opacity setting.
+local function mapWeight(q, red, mapAlpha)
+    local a = 0.25 + 0.45 * math.min(q, 100) / 100
+    if red and a < 0.4 then a = 0.4 end
+    return a * (mapAlpha or 1)
+end
+
+test("overlay: at the default each band weighs what the old ramp did; red never under its floor", function()
+    local md = {}
+    local qs = { 2, 9, 10, 24, 25, 32, 100 }
+    for i, q in ipairs(qs) do md[i * 10] = { [i * 10] = q } end
+    local ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = md } })
+    eq(NAGDeathRadarSettings.mapAlpha, 1, "default opacity 1")
+    S.mapID, S.zoom = ELWYNN, 1
+    WorldMapFrame:OnMapChanged()
+    for i, q in ipairs(qs) do
+        local sq = assert(squareAt(i * 10 + 1, i * 10 + 1, 100), "q " .. q)
+        local red = isRed(sq._color)
+        eq(red, q >= 25, "q " .. q .. " red from the hot threshold")
+        near(sq._color[4], mapWeight(q, red), "q " .. q .. " weight", 1e-9)
+        if red then assert(sq._color[4] >= 0.4, "red floor") end
+    end
+    SlashCmdList.NAGDEATHRADAR("threshold 0.05") -- red from q 5: the floor holds q 9's red at 0.4
+    near(squareAt(21, 21, 100)._color[4], 0.4, "q 9 red at its floor", 1e-9)
+end)
+
+test("overlay: /ndr alpha scales the map squares only, refuses nan, inf and out of range, and persists", function()
+    local ns = boot(barrensLike())
+    S.worldBounds[ELWYNN] = ELWYNN_BOUNDS
+    S.mapID, S.zoom = ELWYNN, 1
+    WorldMapFrame:OnMapChanged()
+    SlashCmdList.NAGDEATHRADAR("alpha 0.5")
+    eq(NAGDeathRadarSettings.mapAlpha, 0.5)
+    near(squareAt(46, 29, 100)._color[4], mapWeight(32, true, 0.5), "hot square at half", 1e-9)
+    near(squareAt(32, 17, 100)._color[4], mapWeight(5, false, 0.5), "quiet square at half", 1e-9)
+    standAt(ELWYNN, 45, 28, 0)
+    ns.Radar.Paint()
+    for i = 1, ns.Radar.BlipCount() do
+        local e = ns.Radar.Blip(i)
+        if e.dx == 0 and e.dy == 0 then
+            local _, _, _, a = ns.Color(0.32, NAGDeathRadarSettings)
+            eq(e.tex._vertex[4], a, "the radar keeps its own alpha")
+        end
+    end
+    for _, msg in ipairs({ "alpha nan", "alpha inf", "alpha -inf", "alpha 0.05", "alpha 2", "alpha x" }) do
+        local _, reply = ns.Command(NAGDeathRadarSettings, msg)
+        eq(NAGDeathRadarSettings.mapAlpha, 0.5, msg .. " refused")
+        assert(reply[1]:find(" takes ", 1, true), msg .. ": the usage line")
+    end
+    ns = boot(barrensLike(), { saved = { mapAlpha = 0.7 } })
+    eq(NAGDeathRadarSettings.mapAlpha, 0.7, "kept")
+    eq(ns.InitSettings({ mapAlpha = 0 }).mapAlpha, 1, "out of range reset")
+end)
+
+test("overlay: the map's own toggle, /ndr map and the panel stay in step, and it is saved", function()
+    local ns = boot("nagdeath_base0.lua")
+    local t = assert(ns.MapToggle(), "a toggle on the world map")
+    eq(t._parent, WorldMapFrame, "on the map frame, hidden with it")
+    eq(t._template, "UICheckButtonTemplate")
+    eq(t._point[1], "TOPRIGHT"); eq(t._point[2], WorldMapFrame:GetCanvasContainer(), "in the map area's top-right corner")
+    eq(t:GetChecked(), true, "on")
+    S.mapID, S.zoom = ELWYNN, 1
+    WorldMapFrame:OnMapChanged()
+    assert(ns.OverlayCount() > 0)
+    t:SetChecked(false); t._scripts.OnClick(t)
+    eq(NAGDeathRadarSettings.overlay, false, "the toggle drives the map setting"); eq(ns.OverlayCount(), 0, "squares gone")
+    local panel = S.panels[1].panel
+    eq(panel.boxes.overlay:GetChecked(), false, "the panel follows")
+    SlashCmdList.NAGDEATHRADAR("map on")
+    eq(t:GetChecked(), true, "/ndr map moves the toggle"); assert(ns.OverlayCount() > 0)
+    panel.boxes.overlay:SetChecked(false); panel.boxes.overlay._scripts.OnClick(panel.boxes.overlay)
+    eq(t:GetChecked(), false, "the panel moves the toggle")
+    S.player.alt = false
+    t:SetChecked(true); t._scripts.OnClick(t)
+    t._scripts.OnEnter(t)
+    eq(GameTooltip._lines[1], "Death heatmap: on", "its tooltip")
+    t._scripts.OnLeave(t)
+    eq(GameTooltip._shown, false)
+    ns = boot("nagdeath_base0.lua", { saved = { overlay = false } })
+    eq(ns.MapToggle():GetChecked(), false, "saved")
 end)
 
 test("radar: in a hot cell the rim turns red and the line says so; with tint off it does not", function()
@@ -795,6 +877,27 @@ test("panel: check boxes follow the settings", function()
     eq(NAGDeathRadarSettings.grid, 2); eq(p.cycles.grid:GetText(), "Grid: blue")
     eq(artPath(ns.RadarFrame.grid), "radarGrids2.png", "applied at once")
     eq(p.boxes.art:GetChecked(), true, "the art box")
+    -- The map opacity slider (UISliderTemplateWithLabels on every target client).
+    local sl = assert(p.mapAlpha, "a slider")
+    eq(S.lastTemplate, "UISliderTemplateWithLabels"); eq(sl._min, 0.1); eq(sl._max, 1); eq(sl:GetValue(), 1)
+    sl._scripts.OnValueChanged(sl, 0.6, true)
+    eq(NAGDeathRadarSettings.mapAlpha, 0.6, "the slider sets the opacity")
+    SlashCmdList.NAGDEATHRADAR("alpha 0.33")
+    eq(sl:GetValue(), 0.33, "/ndr alpha moves the slider")
+    eq(NAGDeathRadarSettings.mapAlpha, 0.33, "and the slider does not snap it to its 0.05 steps")
+end)
+
+test("panel: without the slider template, a step button sets the map opacity", function()
+    boot("nagdeath_base0.lua", { sliderTemplate = false })
+    local p = S.panels[1].panel
+    local b = assert(p.mapAlphaStep, "the step button")
+    eq(p.mapAlpha, nil, "no slider")
+    eq(b:GetText(), "Map opacity: 100%")
+    b._scripts.OnClick(b)
+    eq(NAGDeathRadarSettings.mapAlpha, 0.4, "1 -> 0.4, wrapping round")
+    eq(b:GetText(), "Map opacity: 40%")
+    b._scripts.OnClick(b)
+    eq(NAGDeathRadarSettings.mapAlpha, 0.6)
 end)
 
 out(("%d passed, %d failed"):format(pass, fail))

@@ -5,6 +5,7 @@ levelling:
 
 - a **heatmap on the world map**: the danger zones of the open map in the radar's own colours (light
   blue from 0.02, yellow from 0.10, red from the `threshold` setting), so a cell the radar points at is red on the map too;
+  lighter than on the radar so the map art reads through, with its own opacity (`/ndr alpha`) and an on/off box on the map;
 - a **radar** that turns with you (the direction you face is up), shows the death cells around you and
   points to the nearest danger zone, from the rim when it is further than the radar reaches. While you
   stand in a danger zone the radar's rim turns red. Where there is no position (instances) or no data
@@ -36,7 +37,8 @@ Only Forever collects deaths today, so every other client shows "no data yet".
 | `/ndr ring 1\|2\|8\|10` | the ring art: 1 dark iron (default), 2 plain silver, 8 spiked dark, 10 cyan tech |
 | `/ndr grid 1\|2` | the grid art: 1 green (default), 2 blue |
 | `/ndr art [on\|off]` | the ring and grid art; off leaves a plain ring and field |
-| `/ndr map [on\|off]` | the heatmap on the world map |
+| `/ndr map [on\|off]` | the heatmap on the world map; the **Deaths** box in the map's top-right corner does the same |
+| `/ndr alpha 0.1-1` | the heatmap's opacity (default 1: the light weight, map art reads through); also a slider in the panel |
 | `/ndr tint [on\|off]` | the red rim while you stand in a danger zone (on by default) |
 | `/ndr scale 0.5-2` | radar size (default 1) |
 | `/ndr range 30-300` | yards from the radar's centre to its rim (default 100) |
