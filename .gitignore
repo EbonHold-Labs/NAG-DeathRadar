@@ -1,0 +1,7 @@
+# The NAG app's data drop leaves these next to the data file in an installed copy.
+NAGDeathRadar/Data/*.bak
+NAGDeathRadar/Data/*.new
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

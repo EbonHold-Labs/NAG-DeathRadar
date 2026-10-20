@@ -1,0 +1,10 @@
+NAG Death Radar
+Authors: Rakizi, Fonsas (EbonHold Labs)
+
+Licensed under the Creative Commons Attribution-NonCommercial 4.0 International licence (CC BY-NC 4.0),
+the same licence as Next Action Guide (NAG states it in its source file headers):
+https://creativecommons.org/licenses/by-nc/4.0/legalcode
+
+The radar's geometry and drawing helpers are adapted from Next Action Guide's Shaman totem radar under
+the same licence. The images in NAGDeathRadar/Media/ are Fonsas's own (FonsasDeathRadar), used with his
+permission. No code is taken from Deathlog or DeathNotificationLib.

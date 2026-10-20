@@ -1,0 +1,2 @@
+-- NAG Death Radar data: no data yet. This placeholder defines nothing, so the addon shows "no data yet".
+-- The NAG app replaces this file with the published death heatmap (global NAGDeathData) for your game flavour.
