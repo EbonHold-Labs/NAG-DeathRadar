@@ -3,10 +3,10 @@
 --- WorldMapFrame has a canvas (GetCanvas); elsewhere the module does nothing.
 ---
 --- THE PICTURE is a FINE_GRID (200) x 200 grid per map: the file's `fine` cells when it has them for the map,
---- else its 100 grid upsampled bilinearly (ns.Upsample), where a fine cell is never in a lower colour band than
---- its own 100-cell's, so a cell the radar calls hot is red on the map too (with `fine`, the radar reads the fine
---- cells folded to 100: ns.MapData). Same-colour cells along a row are one
---- texture (ns.Runs: the band and the alpha rounded to ALPHA_STEP); over CAP textures the grid is folded to
+--- else its 100 grid upsampled bilinearly (ns.Upsample), where a fine cell of a hot 100-cell never smooths under
+--- hot, so a cell the radar calls hot is red on the map too (with `fine`, the radar reads the fine cells folded
+--- to 100: ns.MapData). The colours are ns.MapColor's ramp; touching cells of one ramp step along a row are one
+--- texture (ns.Runs); over CAP textures the grid is folded to
 --- 100, then 50, then 25 per side, keeping each bucket's hottest cell. A texture is anchored at its TOPLEFT and
 --- BOTTOMRIGHT from the same edge formula as its neighbours, with pixel snapping off, so touching squares meet
 --- on one edge: no gap, no double-blended line. Textures are pooled, never destroyed.
@@ -32,7 +32,6 @@ table.insert(ns.modules, O)
 ns.Overlay = O
 
 O.CAP = 2500       -- textures at most; a denser picture is drawn at the next coarser grid
-O.ALPHA_STEP = 0.02 -- a run's alpha is rounded to this step, so neighbours a shade apart share a texture
 
 --- Fold a 0-based `from` x `from` grid (ns.GRID when absent) into n x n buckets (1-based, 1..n), keeping the
 --- highest q per bucket. Returns the buckets and their count.
@@ -63,8 +62,9 @@ local function band(i, s)
 end
 
 --- A 0-based ns.GRID grid -> the 0-based FINE_GRID grid, bilinear between cell centres (an edge cell repeats past
---- the edge). A fine cell whose value falls in a lower band than its own 100-cell's (settings s) takes that
---- cell's q, so its band is the same by the same tests, with no rounding in between. Only cells above 0.
+--- the edge). A fine cell of a hot 100-cell (settings s) that smooths to under hot takes that cell's q, so it
+--- draws red by the same test, with no rounding in between; other cells keep their smoothed value (the map's
+--- colours are a ramp: lifting them would put the steps back). Only cells above 0.
 function ns.Upsample(md, s)
     local from, to = ns.GRID, ns.FINE_GRID
     local k = to / from
@@ -95,7 +95,7 @@ function ns.Upsample(md, s)
                         local val = (1 - tx) * (1 - ty) * q(ux, vy) + tx * (1 - ty) * q(ux + 1, vy)
                             + (1 - tx) * ty * q(ux, vy + 1) + tx * ty * q(ux + 1, vy + 1)
                         local parent = q(floor(jx / k), floor(jy / k))
-                        if parent > val and band(val / 100, s) < band(parent / 100, s) then val = parent end
+                        if parent > val and band(val / 100, s) < 3 and band(parent / 100, s) == 3 then val = parent end
                         if val > 0 then
                             local o = out[jx]
                             if not o then o = {}; out[jx] = o end
@@ -115,11 +115,11 @@ function ns.Runs(buckets, n, s)
     local rows = {}
     for bx, col in pairs(buckets) do
         for by, q in pairs(col) do
-            local r, g, b, a = ns.MapColor(q / 100, s)
+            local r, g, b, a, step = ns.MapColor(q / 100, s)
             if r then
                 local row = rows[by]
                 if not row then row = {}; rows[by] = row end
-                row[#row + 1] = { bx, r, g, b, floor(a / O.ALPHA_STEP + 0.5) }
+                row[#row + 1] = { bx, r, g, b, a, step }
             end
         end
     end
@@ -128,10 +128,10 @@ function ns.Runs(buckets, n, s)
         table.sort(row, function(p, q) return p[1] < q[1] end)
         local cur
         for _, c in ipairs(row) do
-            if cur and c[1] == cur.x1 + 1 and c[2] == cur.r and c[3] == cur.g and c[4] == cur.b and c[5] == cur.step then
+            if cur and c[1] == cur.x1 + 1 and c[6] == cur.step then
                 cur.x1 = c[1]
             else
-                cur = { x0 = c[1], x1 = c[1], y = by, r = c[2], g = c[3], b = c[4], step = c[5], a = c[5] * O.ALPHA_STEP }
+                cur = { x0 = c[1], x1 = c[1], y = by, r = c[2], g = c[3], b = c[4], a = c[5], step = c[6] }
                 runs[#runs + 1] = cur
             end
         end
@@ -225,7 +225,7 @@ function O.Redraw(force)
     end
     local runs, n = runCache.runs, runCache.n
     local cw, ch = layer:GetWidth() / n, layer:GetHeight() / n
-    -- The radar's own bands (ns.MapColor: ns.Color's colours at the map's lighter weight). Both corners come from
+    -- ns.MapColor's ramp, red where the radar calls a cell hot. Both corners come from
     -- one edge formula, k * cw and k * ch, so a run ends exactly where its neighbour starts.
     for _, run in ipairs(runs) do
         used = used + 1

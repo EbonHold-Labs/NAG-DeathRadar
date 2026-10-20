@@ -311,16 +311,40 @@ function ns.Color(i, s)
 end
 
 ns.MAP_RED_FLOOR = 0.4
+ns.MAP_RAMP_STEPS = 24 -- shades under hot: enough to blend, few enough that touching cells share a texture
+ns.MAP_RED_STEPS = 8   -- alpha steps of red, from MAP_RED_FLOOR to 0.7
 
---- The world map's colour for intensity i: the same bands (ns.Color), at the lighter weight the map's first
---- ramp had, 0.25 + 0.45 * i, so the map art reads through; red never under MAP_RED_FLOOR. Times the mapAlpha
---- setting. nil below thrLow.
+-- The ramp's colours under hot (Rakizi, 2026-10-20: three flat bands read as stair-steps, and the low blue as a
+-- blanket): a light blue haze at thrLow, yellow at thrMid, orange-red just under hot.
+local RAMP = { { 0.35, 0.75, 1 }, { 1, 0.95, 0.2 }, { 1, 0.3, 0.05 } }
+local RAMP_A_LOW, RAMP_A_HOT = 0.05, 0.38 -- alpha at thrLow and just under hot
+
+--- The world map's colour for intensity i: nil under thrLow; from thrLow to hot a ramp of MAP_RAMP_STEPS shades
+--- (light blue to yellow at thrMid to orange-red), alpha fading in from a haze; from hot (ns.Color's own test)
+--- pure red, MAP_RED_STEPS alphas from MAP_RED_FLOOR to 0.7. Times the mapAlpha setting. The fifth value names the
+--- step: equal steps are equal colours. Thresholds in any order: where thrMid is not between thrLow and hot, the
+--- ramp goes straight from blue to orange-red.
 function ns.MapColor(i, s)
-    local r, g, b = ns.Color(i, s)
-    if not r then return nil end
-    local a = 0.25 + 0.45 * math.min(i, 1)
-    if i >= s.hot and a < ns.MAP_RED_FLOOR then a = ns.MAP_RED_FLOOR end
-    return r, g, b, a * s.mapAlpha
+    if i >= s.hot then
+        local u = s.hot < 1 and (math.min(i, 1) - s.hot) / (1 - s.hot) or 0
+        local k = math.min(ns.MAP_RED_STEPS - 1, floor(u * ns.MAP_RED_STEPS))
+        return 1, 0, 0, (ns.MAP_RED_FLOOR + 0.3 * (k + 0.5) / ns.MAP_RED_STEPS) * s.mapAlpha, 1000 + k
+    end
+    if i < s.thrLow then return nil end
+    local lo, mid, hot = s.thrLow, s.thrMid, s.hot
+    local t
+    if mid > lo and mid < hot then
+        t = i < mid and 0.5 * (i - lo) / (mid - lo) or 0.5 + 0.5 * (i - mid) / (hot - mid)
+    else
+        t = (i - lo) / (hot - lo)
+    end
+    local n = ns.MAP_RAMP_STEPS
+    local k = math.max(0, math.min(n - 1, floor(t * n)))
+    local tq = (k + 0.5) / n
+    local a, b, w = RAMP[1], RAMP[2], tq * 2
+    if tq >= 0.5 then a, b, w = RAMP[2], RAMP[3], tq * 2 - 1 end
+    return a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w, a[3] + (b[3] - a[3]) * w,
+        (RAMP_A_LOW + (RAMP_A_HOT - RAMP_A_LOW) * tq ^ 1.5) * s.mapAlpha, k
 end
 
 -- ============================ slash ============================

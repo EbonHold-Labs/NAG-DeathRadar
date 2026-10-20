@@ -21,8 +21,9 @@ deaths with the server's `fine` field (200 per side): swap it in to see the map 
 - [ ] Put `NAGDeathData = { v = 2, map = {} }` in the file, `/reload`: the same.
 
 ## 3. The heatmap (with the fixture)
-- [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows light-blue, yellow and red
-      squares, in the radar's colours.
+- [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows the heat as a smooth ramp, a
+      faint light blue haze through yellow and orange to red, with no hard steps between shades; the red is
+      where the radar's red is.
 - [ ] The squares sit over the map art and the explored-area art, BELOW the pins (flight points, quest
       markers) and the player arrow.
 - [ ] Titan Reforged and MoP Classic only: with a quest whose objective area shows on the map, note

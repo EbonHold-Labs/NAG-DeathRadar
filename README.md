@@ -3,8 +3,9 @@
 A small, free World of Warcraft addon from the Next Action Guide team. It shows where players died while
 levelling:
 
-- a **heatmap on the world map**: the danger zones of the open map in the radar's own colours (light
-  blue from 0.02, yellow from 0.10, red from the `threshold` setting), so a cell the radar points at is red on the map too;
+- a **heatmap on the world map**: the danger zones of the open map in a smooth colour ramp, from a faint light
+  blue haze at 0.02 through yellow at 0.10 to orange-red, then red from the `threshold` setting, the radar's own
+  red, so a cell the radar points at is red on the map too;
   drawn 200 x 200 per map at every zoom, smoothed between cells (the file's `fine` cells where it has them);
   lighter than on the radar so the map art reads through, with its own opacity (`/ndr alpha`) and an on/off box on the map;
 - a **radar** that turns with you (the direction you face is up), shows the death cells around you and
@@ -73,9 +74,11 @@ NAGDeathData = {
   The file states its base in `cellBase`; when the field is absent the addon reads cells as 1..100 (the
   first contract). The side that writes the file must state the base.
 - **The world map draws 200 x 200 per map.** From `fine` where the file has it for the map; else from `map`,
-  each cell upsampled bilinearly between cell centres, a fine cell never drawn in a lower colour band than its
-  own cell's (it takes that cell's q there), so the radar's red stays red on the map. Touching cells of one colour along a row are one texture; past 2,500 textures the picture is folded to
-  100, 50 or 25 per side, keeping each square's hottest cell.
+  each cell upsampled bilinearly between cell centres; a fine cell of a cell the radar calls hot that smooths
+  under the threshold takes that cell's q, so the radar's red stays red on the map. The colours are a ramp of 24
+  shades under the threshold (alpha fading in from a haze) and 8 alphas of red above it. Touching cells of one
+  shade along a row are one texture; past 2,500 textures the picture is folded to 100, 50 or 25 per side,
+  keeping each square's hottest cell.
 - **`fine`, optional (the server's, Tools PR #1142).** `grid` is the cells per side (200, 300 or 400), `cellBase`
   0 or 1 (0 when absent), `levels` 2..64 (64 when absent): a cell's level is 1..levels - 1, the map's hottest
   cell is levels - 1, read as `q = 100 * level / (levels - 1)`. Each map is a list of strings of whole runs
