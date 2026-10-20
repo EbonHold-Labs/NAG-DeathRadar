@@ -36,8 +36,17 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
 
 ## 4. The radar
 - [ ] The art loads: Fonsas's ring (`Media/frame1.png`) and the green grid (`Media/radarGrids1.png`)
-      show, the ring's hole lines up with the field. If either PNG does not load on this client, a plain
-      dark ring and a dark field remain; note which.
+      show. If a PNG does not load on this client, a plain dark ring and a dark field remain; note which.
+- [ ] Each ring lines up: its hole meets the field with no gap and no field showing past it, and the
+      radar's drag box (Alt + hover shows the tooltip at its top edge) holds the whole ring:
+  - [ ] `/ndr ring 1` (dark iron, dragons)
+  - [ ] `/ndr ring 2` (plain silver)
+  - [ ] `/ndr ring 8` (spiked dark)
+  - [ ] `/ndr ring 10` (cyan tech)
+- [ ] `/ndr grid 2`: the blue grid fills the field like the green one; the light-blue blips stay readable
+      on it (the reason green is the default).
+- [ ] `/ndr art off`: the ring and grid go, a plain dark ring and field remain, the radar shrinks to them;
+      `/ndr art on` brings them back. The red rim tint shows in both.
 - [ ] Turn in place: the picture turns, the arrow in the middle never does; what is ahead of the
       character is at the top.
 - [ ] The cells are round blips (light blue, yellow, red), cut at the radar's circle.
@@ -48,15 +57,20 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
       moves the picture at the same speed.
 - [ ] Stand in a red cell: the rim turns red and the line says "danger: you stand in a hot zone";
       `/ndr tint off` keeps the rim dark. No screen glow, no sound.
-- [ ] In a dungeon or a battleground: "no position here" or "no data for this map", no error.
+- [ ] In a dungeon or a battleground: "no position here" or "no data for this map", no error; the radar
+      dims to about 30 % and the note stays readable. Back outside, it is full again.
 - [ ] `/ndr range 50` and `/ndr scale 1.5`: the picture zooms and the radar grows, in place.
 
 ## 5. Mouse, drag, settings
 - [ ] Without Alt, clicking or right-click-turning the camera over the radar acts on the world (the radar
       takes no click).
 - [ ] Alt + drag moves the radar; releasing Alt ends the drag. `/ndr lock`: Alt + drag does nothing.
-- [ ] Options > AddOns lists "NAG Death Radar" with its four check boxes and the data line; `/ndr options`
-      opens it (out of combat).
+- [ ] Hold Alt and hover the radar: a tooltip with the data line and "Right-click: settings". Alt +
+      right-click opens the settings panel; in combat neither shows. Without Alt, a right-click on it turns
+      the camera as usual.
+- [ ] Options > AddOns lists "NAG Death Radar" with its five check boxes, the Ring and Grid buttons and the
+      data line; `/ndr options` opens it (out of combat).
+- [ ] The ring, grid and art choice survive `/reload` and a cold start.
 - [ ] The place, size and switches survive `/reload` AND a cold start (quit the client, start again):
       Forever's SavedVariables history makes the cold start the real test.
 

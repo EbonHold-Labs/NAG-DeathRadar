@@ -16,7 +16,22 @@ local BOXES = {
     { "overlay", "Heatmap on the world map" },
     { "locked", "Lock the radar (unlocked: Alt + drag moves it)" },
     { "rimTint", "Tint the radar's rim red while you stand in a hot zone" },
+    { "art", "Show the ring and grid art (off: a plain ring)" },
 }
+-- Buttons that step through a setting's choices (no dropdown: its template differs between clients).
+local CYCLES = {
+    { "ring", "Ring" },
+    { "grid", "Grid", { [1] = "green", [2] = "blue" } },
+}
+
+--- The next choice after `cur` in the setting's list, wrapping round.
+function ns.NextChoice(key, cur)
+    local list = ns.CHOICES[key]
+    for i, c in ipairs(list) do
+        if c == cur then return list[i % #list + 1] end
+    end
+    return list[1]
+end
 
 local panel, category, registeredWith
 
@@ -24,6 +39,10 @@ function ns.RefreshPanel()
     if not panel then return end
     local s = NAGDeathRadarSettings
     for key, cb in pairs(panel.boxes) do cb:SetChecked(s[key] == true) end
+    for _, it in ipairs(CYCLES) do
+        local v = s[it[1]]
+        panel.cycles[it[1]]:SetText(("%s: %s"):format(it[2], it[3] and it[3][v] or tostring(v)))
+    end
     panel.status:SetText(ns.StatusLine())
 end
 
@@ -51,7 +70,19 @@ function ns.BuildPanel()
         end)
         panel.boxes[key] = cb
     end
-    local y = -40 - (#BOXES + 1) * 30
+    panel.cycles = {}
+    for i, it in ipairs(CYCLES) do
+        local key = it[1]
+        local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        b:SetSize(110, 22)
+        b:SetPoint("TOPLEFT", panel, "TOPLEFT", 20 + (i - 1) * 120, -40 - (#BOXES + 1) * 30)
+        b:SetScript("OnClick", function()
+            NAGDeathRadarSettings[key] = ns.NextChoice(key, NAGDeathRadarSettings[key])
+            ns.Apply()
+        end)
+        panel.cycles[key] = b
+    end
+    local y = -40 - (#BOXES + 2) * 30
     for _, line in ipairs(ns.HELP) do
         local t = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         t:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, y)

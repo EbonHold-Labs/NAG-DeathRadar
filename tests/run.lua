@@ -50,6 +50,7 @@ local function boot(data, opts)
             assert(loadfile(ADDON .. f))("NAGDeathRadar", ns)
         end
     end
+    if opts and opts.saved then NAGDeathRadarSettings = opts.saved end
     S.fire("ADDON_LOADED", "NAGDeathRadar")
     S.fire("PLAYER_LOGIN")
     return ns
@@ -524,7 +525,7 @@ test("radar: the OnUpdate stops on hide and comes back on show", function()
     eq(S.liveUpdates(), 1, "back"); eq(ns.RadarFrame:IsShown(), true)
 end)
 
-test("radar: the mouse only while Alt is held and unlocked", function()
+test("radar: the mouse only while Alt is held; a lock stops the drag", function()
     local ns = bootRadar()
     local f = ns.RadarFrame
     eq(f._mouse, false, "no mouse by default: world clicks go through")
@@ -538,7 +539,90 @@ test("radar: the mouse only while Alt is held and unlocked", function()
     eq(NAGDeathRadarSettings.radarPos.x, 200, "saved x"); eq(NAGDeathRadarSettings.radarPos.y, 100, "saved y")
     SlashCmdList.NAGDEATHRADAR("lock")
     S.player.alt = true; S.fire("MODIFIER_STATE_CHANGED")
-    eq(f._mouse, false, "locked: never")
+    eq(f._mouse, true, "locked: Alt still takes the mouse, for the settings click")
+    f._moving = false
+    f._scripts.OnDragStart(f)
+    eq(f._moving, false, "locked: no drag")
+end)
+
+local RING_GEOMETRY = { [1] = { 0.314, 0.500 }, [2] = { 0.342, 0.456 }, [8] = { 0.284, 0.474 }, [10] = { 0.354, 0.494 } }
+
+local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
+
+test("radar: ring, grid and art choices persist and apply the art and the ring's geometry", function()
+    local ns = bootRadar()
+    local f, R = ns.RadarFrame, ns.Radar
+    eq(NAGDeathRadarSettings.ring, 1, "default ring"); eq(NAGDeathRadarSettings.grid, 1, "default grid")
+    eq(NAGDeathRadarSettings.art, true, "art on by default")
+    for ring, g in pairs(RING_GEOMETRY) do
+        SlashCmdList.NAGDEATHRADAR("ring " .. ring)
+        eq(NAGDeathRadarSettings.ring, ring, "saved")
+        eq(artPath(f.art), "frame" .. ring .. ".png", "ring " .. ring .. " art")
+        local art = (R.RADIUS + R.BORDER / 2) / g[1]
+        near(f.art._w, art, "ring " .. ring .. " art size", 1e-6)
+        near(f._w, 2 * art * g[2], "ring " .. ring .. ": the frame is the ring's outer edge", 1e-6)
+        eq(f._w, f._h, "square")
+    end
+    local before = NAGDeathRadarSettings.ring
+    local _, reply = ns.Command(NAGDeathRadarSettings, "ring 3")
+    eq(NAGDeathRadarSettings.ring, before, "ring 3 refused"); assert(reply[1]:find("1, 2, 8, 10", 1, true), reply[1])
+    SlashCmdList.NAGDEATHRADAR("grid 2")
+    eq(artPath(f.grid), "radarGrids2.png", "blue grid")
+    SlashCmdList.NAGDEATHRADAR("art off")
+    eq(f.art:IsShown(), false, "ring art hidden"); eq(f.grid:IsShown(), false, "grid art hidden")
+    eq(f.rim:IsShown(), true, "plain rim stays"); eq(f.field:IsShown(), true, "plain field stays")
+    eq(f._w, (R.RADIUS + R.BORDER) * 2, "art off: the frame is the plain rim")
+    -- Persisted: a new session reads them back.
+    ns = bootRadar({ saved = { ring = 8, grid = 2, art = false } })
+    eq(artPath(ns.RadarFrame.art), "frame8.png"); eq(artPath(ns.RadarFrame.grid), "radarGrids2.png")
+    eq(ns.RadarFrame.art:IsShown(), false, "art off kept")
+    eq(ns.InitSettings({ ring = 7, grid = 3, art = "yes" }).ring, 1, "an unknown ring is reset")
+    eq(ns.InitSettings({ grid = 3 }).grid, 1, "an unknown grid is reset")
+end)
+
+test("radar: right-click opens the settings only with Alt, out of combat; the tooltip with Alt", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    eq(f._mouse, false, "no Alt: no mouse")
+    f._scripts.OnMouseUp(f, "RightButton")
+    eq(#S.opened, 0, "no Alt: nothing opens")
+    f._scripts.OnEnter(f)
+    eq(GameTooltip._shown, false, "no Alt: no tooltip")
+    S.player.alt = true; S.fire("MODIFIER_STATE_CHANGED")
+    eq(f._mouse, true, "Alt: the mouse")
+    f._scripts.OnEnter(f)
+    eq(GameTooltip._shown, true, "Alt: the tooltip")
+    eq(GameTooltip._lines[2], ns.StatusLine(), "the data line")
+    eq(GameTooltip._lines[3], "Right-click: settings")
+    f._scripts.OnLeave(f)
+    eq(GameTooltip._shown, false, "leave hides it")
+    f._scripts.OnMouseUp(f, "LeftButton")
+    eq(#S.opened, 0, "a left click opens nothing")
+    S.player.combat = true
+    f._scripts.OnMouseUp(f, "RightButton")
+    eq(#S.opened, 0, "in combat: nothing opens")
+    f._scripts.OnEnter(f)
+    eq(GameTooltip._shown, false, "in combat: no tooltip")
+    S.player.combat = false
+    f._scripts.OnMouseUp(f, "RightButton")
+    eq(S.opened[1], 77, "Alt + right-click out of combat: the panel")
+end)
+
+test("radar: dimmed without a position or data for the map, the note readable; undimmed after", function()
+    local ns = bootRadar({ secrets = true })
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 40, 60)
+    ns.Radar.Paint()
+    eq(f._alpha, 1, "a position: full")
+    S.player.x = S.SECRET
+    ns.Radar.Paint()
+    eq(f._alpha, 0.3, "no position: dimmed"); eq(f.note._ownAlpha, true, "the note keeps its own alpha")
+    standAt(ELWYNN, 40, 60)
+    ns.Radar.Paint()
+    eq(f._alpha, 1, "back")
+    standAt(NO_DATA_MAP, 40, 60)
+    ns.Radar.Paint()
+    eq(f._alpha, 0.3, "no data for this map: dimmed")
 end)
 
 -- ============================ the settings panel ============================
@@ -564,6 +648,15 @@ test("panel: check boxes follow the settings", function()
     p.boxes.radar._scripts.OnClick(p.boxes.radar)
     eq(NAGDeathRadarSettings.radar, false); eq(S.liveUpdates(), 0, "unticked: the radar stops")
     eq(p.status:GetText(), ns.StatusLine())
+    eq(p.cycles.ring:GetText(), "Ring: 1"); eq(p.cycles.grid:GetText(), "Grid: green")
+    for _, want in ipairs({ 2, 8, 10, 1 }) do
+        p.cycles.ring._scripts.OnClick(p.cycles.ring)
+        eq(NAGDeathRadarSettings.ring, want, "the ring button steps")
+    end
+    p.cycles.grid._scripts.OnClick(p.cycles.grid)
+    eq(NAGDeathRadarSettings.grid, 2); eq(p.cycles.grid:GetText(), "Grid: blue")
+    eq(artPath(ns.RadarFrame.grid), "radarGrids2.png", "applied at once")
+    eq(p.boxes.art:GetChecked(), true, "the art box")
 end)
 
 out(("%d passed, %d failed"):format(pass, fail))

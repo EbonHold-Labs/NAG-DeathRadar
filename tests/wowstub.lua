@@ -12,7 +12,7 @@ local PROBED = { CreateMaskTexture = true, GetCanvas = true, GetCanvasContainer 
     GetScaleForMinZoom = true, GetScaleForMaxZoom = true,
     GetPinFrameLevelsManager = true, OnMapChanged = true, OnCanvasScaleChanged = true }
 
-local REGION, FRAME, CHECK, TEXTURE, MASK, FONT = {}, {}, {}, {}, {}, {}
+local REGION, FRAME, CHECK, BUTTON, TEXTURE, MASK, FONT, TOOLTIP = {}, {}, {}, {}, {}, {}, {}, {}
 
 local function new(kind, parent)
     local o = { _kind = kind, _shown = true, _scripts = {}, _parent = parent, _w = nil, _h = nil }
@@ -71,7 +71,9 @@ function FRAME:EnableMouse(v) self._mouse = v and true or false end
 function FRAME:RegisterForDrag() end
 function FRAME:StartMoving() self._moving = true end
 function FRAME:StopMovingOrSizing() self._moving = false end
-for k, v in pairs(FRAME) do CHECK[k] = v end
+for k, v in pairs(FRAME) do CHECK[k] = v; BUTTON[k] = v end
+function BUTTON:SetText(t) self._text = t end
+function BUTTON:GetText() return self._text end
 function CHECK:SetChecked(v) self._checked = v and true or false end
 function CHECK:GetChecked() return self._checked end
 
@@ -85,6 +87,11 @@ function MASK:SetTexture(path) self._texture = path end
 -- Font strings.
 function FONT:SetText(t) self._text = t end
 function FONT:GetText() return self._text end
+function FONT:SetIgnoreParentAlpha(v) self._ownAlpha = v end
+
+-- The game tooltip.
+function TOOLTIP:SetOwner(owner) self._owner = owner; self._lines = {} end
+function TOOLTIP:AddLine(t) table.insert(self._lines, t) end
 
 S.KINDS = { REGION = REGION, FRAME = FRAME, TEXTURE = TEXTURE, FONT = FONT }
 
@@ -107,11 +114,13 @@ function S.reset(opts)
 
     _G.NAGDeathData, _G.NAGDeathRadarSettings = nil, nil
     _G.UIParent = new(FRAME)
+    _G.GameTooltip = new(TOOLTIP)
+    _G.GameTooltip._shown, _G.GameTooltip._lines = false, {}
     _G.SlashCmdList = {}
     _G.print = function(...) table.insert(S.prints, table.concat({ ... }, " ")) end
     _G.date = os.date
     _G.CreateFrame = function(kind, _, parent)
-        return new(kind == "CheckButton" and CHECK or FRAME, parent)
+        return new(kind == "CheckButton" and CHECK or kind == "Button" and BUTTON or FRAME, parent)
     end
     _G.hooksecurefunc = function(t, name, f)
         local old = t[name]

@@ -6,7 +6,8 @@ levelling:
 - a **heatmap on the world map**: the danger zones of the open map, yellow to red;
 - a **radar** that turns with you (the direction you face is up), shows the death cells around you and
   points to the nearest danger zone, from the rim when it is further than the radar reaches. While you
-  stand in a danger zone the radar's rim turns red.
+  stand in a danger zone the radar's rim turns red. Where there is no position (instances) or no data
+  for the map, it dims and says so.
 
 It is an empty shell: it only reads one data file, `Data/NAGDeathData.lua`, which the NAG app writes and
 refreshes. The addon itself has no network access, sends no chat or addon messages, embeds no
@@ -31,12 +32,15 @@ Only Forever collects deaths today, so every other client shows "no data yet".
 | `/ndr` or `/ndr help` | the data line and this list |
 | `/ndr show`, `/ndr hide` | the radar |
 | `/ndr lock [on\|off]` | lock the radar; unlocked, **Alt + drag** moves it (without Alt, clicks go through to the world) |
+| `/ndr ring 1\|2\|8\|10` | the ring art: 1 dark iron (default), 2 plain silver, 8 spiked dark, 10 cyan tech |
+| `/ndr grid 1\|2` | the grid art: 1 green (default), 2 blue |
+| `/ndr art [on\|off]` | the ring and grid art; off leaves a plain ring and field |
 | `/ndr map [on\|off]` | the heatmap on the world map |
 | `/ndr tint [on\|off]` | the red rim while you stand in a danger zone (on by default) |
 | `/ndr scale 0.5-2` | radar size (default 1) |
 | `/ndr range 30-300` | yards from the radar's centre to its rim (default 100) |
 | `/ndr threshold 0.05-1` | a cell is a danger zone from this intensity (default 0.25) |
-| `/ndr options` | the settings panel (also under Options > AddOns) |
+| `/ndr options` | the settings panel (also under Options > AddOns, or **Alt + right-click** the radar out of combat) |
 | `/ndr reset` | the defaults |
 
 ## The data
@@ -99,7 +103,8 @@ The in-game checks are in [CHECKLIST.md](CHECKLIST.md).
 ## Licence
 
 CC BY-NC 4.0, the same as Next Action Guide; see [LICENSE](LICENSE). The radar's geometry and drawing
-helpers come from NAG's Shaman totem radar. The ring and grid art (`Media/frame1.png`,
-`Media/radarGrids1.png`) are Fonsas's own. Nothing is taken from Deathlog or DeathNotificationLib.
+helpers come from NAG's Shaman totem radar. The ring and grid art (`Media/frame1.png`, `frame2.png`,
+`frame8.png`, `frame10.png`, `radarGrids1.png`, `radarGrids2.png`) are Fonsas's own, from his
+FonsasDeathRadar. Nothing is taken from Deathlog or DeathNotificationLib.
 
 The addon is free.

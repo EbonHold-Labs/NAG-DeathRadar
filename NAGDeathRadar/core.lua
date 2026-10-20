@@ -36,6 +36,9 @@ ns.defaults = {
     overlay = true,    -- the heatmap on the world map
     locked = false,    -- the radar cannot be dragged
     rimTint = true,    -- the radar's rim turns red while the player stands in a hot cell
+    art = true,        -- Fonsas's ring and grid art over the plain rim and field
+    ring = 1,          -- which ring art (ns.CHOICES.ring)
+    grid = 1,          -- which grid art: 1 green, 2 blue
     scale = 1,         -- radar size
     yards = 100,       -- yards from the radar's centre to its rim
     hot = 0.25,        -- a cell is hot from this intensity (q / 100): red, the nearest-hot pointer and the rim tint
@@ -46,6 +49,15 @@ ns.defaults = {
 
 -- Numbers outside these bounds come back from the defaults.
 ns.RANGES = { scale = { 0.5, 2 }, yards = { 30, 300 }, hot = { 0.05, 1 }, thrLow = { 0, 1 }, thrMid = { 0, 1 } }
+-- Settings that take one of a list (the art files under Media/).
+ns.CHOICES = { ring = { 1, 2, 8, 10 }, grid = { 1, 2 } }
+
+local function isChoice(key, v)
+    for _, c in ipairs(ns.CHOICES[key]) do
+        if v == c then return true end
+    end
+    return false
+end
 
 local function copy(v)
     if type(v) ~= "table" then return v end
@@ -59,7 +71,10 @@ function ns.InitSettings(sv)
     sv = type(sv) == "table" and sv or {}
     for k, v in pairs(ns.defaults) do
         local cur, r = sv[k], ns.RANGES[k]
-        if type(cur) ~= type(v) or (r and (cur ~= cur or cur < r[1] or cur > r[2])) then sv[k] = copy(v) end
+        if type(cur) ~= type(v) or (r and (cur ~= cur or cur < r[1] or cur > r[2]))
+            or (ns.CHOICES[k] and not isChoice(k, cur)) then
+            sv[k] = copy(v)
+        end
     end
     local p = sv.radarPos
     if type(p.x) ~= "number" or type(p.y) ~= "number" or p.x ~= p.x or p.y ~= p.y then
@@ -193,8 +208,9 @@ ns.HELP = {
     "/ndr lock: lock or unlock the radar (drag it with Alt held)",
     "/ndr map [on|off]: the heatmap on the world map",
     "/ndr tint [on|off]: the rim turns red where you stand in a hot cell",
+    "/ndr art [on|off], ring 1|2|8|10, grid 1|2 (1 green, 2 blue): the radar's look",
     "/ndr scale 0.5-2, range 30-300 (yards), threshold 0.05-1 (hot from this intensity)",
-    "/ndr options: the settings panel; /ndr reset: the defaults; /ndr help: this list",
+    "/ndr options (or Alt + right-click the radar): the settings panel; /ndr reset: the defaults; /ndr help: this list",
 }
 
 --- Pure: returns the settings (a new table after reset), the reply lines, and an action ("panel") or nil.
@@ -212,6 +228,16 @@ function ns.Command(s, msg)
     elseif cmd == "tint" then
         s.rimTint = onOff(arg, s.rimTint)
         return s, { "rim tint " .. (s.rimTint and "on" or "off") }
+    elseif cmd == "art" then
+        s.art = onOff(arg, s.art)
+        return s, { "radar art " .. (s.art and "on" or "off") }
+    elseif ns.CHOICES[cmd] then
+        local n = tonumber(arg)
+        if not isChoice(cmd, n) then
+            return s, { ("%s takes %s (now %s)"):format(cmd, table.concat(ns.CHOICES[cmd], ", "), tostring(s[cmd])) }
+        end
+        s[cmd] = n
+        return s, { cmd .. " " .. n }
     elseif NUMBERS[cmd] then
         local key, n, r = NUMBERS[cmd], tonumber(arg), ns.RANGES[NUMBERS[cmd]]
         -- tonumber reads "nan" and "inf": NaN fails every comparison, so it is refused by name, inf with it.
