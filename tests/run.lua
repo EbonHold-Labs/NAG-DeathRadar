@@ -381,7 +381,7 @@ test("fine: the server's packed field decodes to the cells its encoder was given
     local one = { run(0, 0, { 1 }) }
     eq(select(2, fineOf(nil)), "absent")
     eq(select(2, fineOf("x")), "format")
-    for _, g in ipairs({ 100, 199, 401, 200.5, "200" }) do eq(select(2, fineOf({ grid = g, [1] = one })), "grid", tostring(g)) end
+    for _, g in ipairs({ 100, 199, 250, 401, 200.5, "200" }) do eq(select(2, fineOf({ grid = g, [1] = one })), "grid", tostring(g)) end
     near(fineOf({ grid = 300, [1] = { run(299, 299, { 63 }) } }).map[1][299][299], 100, "a 300 grid reads; the map folds it to 200")
     eq(select(2, fineOf({ grid = 200, cellBase = 2, [1] = one })), "cellBase")
     for _, l in ipairs({ 1, 65, 2.5 }) do eq(select(2, fineOf({ grid = 200, levels = l, [1] = one })), "levels", tostring(l)) end
@@ -746,6 +746,18 @@ test("fine: the radar reads the fine cells folded to its grid, so its hot cells 
     eq(ns.MapData(NO_DATA_MAP), nil)
     local plain = boot("nagdeath_base0.lua")
     eq(plain.MapData(ELWYNN), plain.data.map[ELWYNN], "without fine, the radar reads map")
+end)
+
+test("overlay: a threshold changed past the 14th digit redraws the picture", function()
+    local ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = { [10] = { [10] = 25 } } } })
+    S.mapID = ELWYNN
+    WorldMapFrame:OnMapChanged()
+    assert(isRed(cellTex(20, 20)._color), "q 25 red at 0.25")
+    SlashCmdList.NAGDEATHRADAR("threshold 0.250000000000001")
+    local want = { ns.MapColor(0.25, NAGDeathRadarSettings) }
+    eq(want[2], 1, "ns.Color calls 0.25 yellow now")
+    local tex = cellTex(20, 20)
+    assert(tex and isYellow(tex._color), "the map follows: yellow, not the cached red")
 end)
 
 test("overlay: the map's bands are the radar's, for q 1, 9, 10, 24, 25, 100", function()

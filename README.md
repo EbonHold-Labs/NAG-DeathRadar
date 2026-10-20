@@ -76,7 +76,7 @@ NAGDeathData = {
   each cell upsampled bilinearly between cell centres, a fine cell never drawn in a lower colour band than its
   own cell's (it takes that cell's q there), so the radar's red stays red on the map. Touching cells of one colour along a row are one texture; past 2,500 textures the picture is folded to
   100, 50 or 25 per side, keeping each square's hottest cell.
-- **`fine`, optional (the server's, Tools PR #1142).** `grid` is the cells per side (200..400), `cellBase`
+- **`fine`, optional (the server's, Tools PR #1142).** `grid` is the cells per side (200, 300 or 400), `cellBase`
   0 or 1 (0 when absent), `levels` 2..64 (64 when absent): a cell's level is 1..levels - 1, the map's hottest
   cell is levels - 1, read as `q = 100 * level / (levels - 1)`. Each map is a list of strings of whole runs
   along a row: `Y` (2 characters), `X` (2), `N` (1), then `N` level characters for the cells `x .. x+N-1` of

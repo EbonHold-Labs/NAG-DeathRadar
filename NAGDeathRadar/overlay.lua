@@ -153,6 +153,9 @@ end
 local layer, label, toggle, menuEntry
 local pool, used = {}, 0
 local lastMap
+-- A number in a cache key at full precision: "..", like tostring, keeps 14 digits, and two thresholds that differ
+-- past them would share a key.
+local function exact(v) return ("%.17g"):format(v) end
 local upCache = {}  -- the last map's upsampled grid, for its 100 grid and bands
 local runCache = {} -- the last picture's runs, for its source grid and colours (a map reopens without rework)
 
@@ -189,7 +192,7 @@ function O.Source(map, s)
     if fine then return fine, d.fine.grid end
     local md = ns.MapData(map)
     if not md then return nil end
-    local key = s.hot .. ":" .. s.thrMid .. ":" .. s.thrLow
+    local key = exact(s.hot) .. ":" .. exact(s.thrMid) .. ":" .. exact(s.thrLow)
     if upCache.md ~= md or upCache.key ~= key then
         upCache.md, upCache.key, upCache.grid = md, key, ns.Upsample(md, s)
     end
@@ -215,7 +218,7 @@ function O.Redraw(force)
     local src, from = O.Source(map, s)
     if not src then return say(ns.NO_MAP_DATA) end
     say(nil)
-    local key = s.hot .. ":" .. s.thrMid .. ":" .. s.thrLow .. ":" .. s.mapAlpha .. ":" .. O.CAP
+    local key = exact(s.hot) .. ":" .. exact(s.thrMid) .. ":" .. exact(s.thrLow) .. ":" .. exact(s.mapAlpha) .. ":" .. O.CAP
     if runCache.src ~= src or runCache.key ~= key then
         runCache.src, runCache.key = src, key
         runCache.runs, runCache.n = ns.CappedRuns(src, from, ns.FINE_GRID, O.CAP, s)

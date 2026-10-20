@@ -114,7 +114,8 @@ end
 -- THE OPTIONAL `fine` FIELD (the server's, Tools PR #1142, relay 3726): finer cells for the world map, beside
 -- `map`, which stays for older copies.
 --   fine = { grid = 200, cellBase = 0, levels = 64, [uiMapID] = { "packed", "packed", ... } }
--- grid: cells per side, an integer FINE_GRID..400 (never coarser than the map draws, which would leave holes).
+-- grid: cells per side, a multiple of 100 from FINE_GRID to 400 (never coarser than the map draws, which would leave
+-- holes; a whole multiple, so each fine cell folds into one radar cell, where the server binned its deaths).
 -- cellBase: 0 or 1, 0 when absent. levels: 2..64, 64 when absent; a cell's level is 1..levels - 1, the map's
 -- hottest cell is levels - 1, read as q = 100 * level / (levels - 1). Each string holds whole runs along a row:
 -- Y (2 chars), X (2 chars), N (1 char, 1 or more), then N level characters for the cells x .. x + N - 1 of row y;
@@ -183,7 +184,9 @@ function ns.LoadFine(raw)
     local grid, base, levels = f.grid, f.cellBase, f.levels
     if base == nil then base = 0 end
     if levels == nil then levels = #ns.FINE_B64 end
-    if not isInt(grid) or grid < ns.FINE_GRID or grid > ns.FINE_MAX_GRID then return nil, "grid" end
+    if not isInt(grid) or grid % ns.GRID ~= 0 or grid < ns.FINE_GRID or grid > ns.FINE_MAX_GRID then
+        return nil, "grid"
+    end
     if base ~= 0 and base ~= 1 then return nil, "cellBase" end
     if not isInt(levels) or levels < 2 or levels > #ns.FINE_B64 then return nil, "levels" end
     local maps, coarse, nMaps = {}, {}, 0
