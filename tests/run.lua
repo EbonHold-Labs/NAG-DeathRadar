@@ -758,6 +758,16 @@ test("overlay: a threshold changed past the 14th digit redraws the picture", fun
     eq(want[2], 1, "ns.Color calls 0.25 yellow now")
     local tex = cellTex(20, 20)
     assert(tex and isYellow(tex._color), "the map follows: yellow, not the cached red")
+    -- The other way: drawn first at 0.250000000000001, the upsample does not lift q 25 (yellow there); at 0.25 the
+    -- upsample must be built again, lifted, red.
+    ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = { [10] = { [10] = 25 } } } }, { saved = { hot = 0.250000000000001 } })
+    S.mapID = ELWYNN
+    WorldMapFrame:OnMapChanged()
+    tex = cellTex(20, 20)
+    assert(tex and isYellow(tex._color), "q 25 yellow at 0.250000000000001")
+    SlashCmdList.NAGDEATHRADAR("threshold 0.25")
+    tex = cellTex(20, 20)
+    assert(tex and isRed(tex._color), "at 0.25: red, not the cached unlifted grid")
 end)
 
 test("overlay: the map's bands are the radar's, for q 1, 9, 10, 24, 25, 100", function()
