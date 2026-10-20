@@ -488,6 +488,49 @@ test("map colours: a ramp from a faint blue haze to orange-red under hot, red fr
     end
 end)
 
+test("map colours: a cell exactly at hot draws the red family (red team LOW-1, relay 3839)", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    for _, h in ipairs({ 0.05, 0.1, 0.167, 0.25, 0.3, 0.333, 0.7, 1 }) do
+        s.hot = h
+        local r, g, b, a, step = ns.MapColor(h, s)
+        assert(redFamily(r, g, b), ("i == hot %s: red family, got %s %s %s"):format(h, tostring(r), tostring(g), tostring(b)))
+        assert(step >= 1000 and a >= 0.5, "i == hot " .. h .. ": red's first step")
+    end
+end)
+
+test("map colours: a red cell beside a ramp cell of the same step index stays its own run (red team LOW-2)", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    local _, _, _, _, rampStep = ns.MapColor(0.02, s)
+    local _, _, _, _, redStep = ns.MapColor(0.25, s)
+    eq(rampStep, 0, "the ramp's first step"); eq(redStep % 1000, 0, "red's first step has the same index")
+    local runs = ns.Runs({ [1] = { [1] = 2 }, [2] = { [1] = 25 } }, 200, s)
+    eq(#runs, 2, "two runs, not one")
+    table.sort(runs, function(x, y) return x.x0 < y.x0 end)
+    local want1 = { ns.MapColor(0.02, s) }
+    local want2 = { ns.MapColor(0.25, s) }
+    eq(runs[1].r .. runs[1].g .. runs[1].b .. runs[1].a, want1[1] .. want1[2] .. want1[3] .. want1[4], "the ramp cell's own colour")
+    eq(runs[2].r .. runs[2].g .. runs[2].b .. runs[2].a, want2[1] .. want2[2] .. want2[3] .. want2[4], "the red cell's own colour")
+    assert(redFamily(runs[2].r, runs[2].g, runs[2].b), "and it is red")
+end)
+
+test("map colours: thrMid outside thrLow..hot, the ramp runs straight from blue to orange over thrLow..hot", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    for _, mid in ipairs({ 0.01, 0.05, 0.25, 0.6 }) do -- under thrLow, at it, at hot, above hot
+        s.thrLow, s.thrMid, s.hot = 0.05, mid, 0.25
+        for _, i in ipairs({ 0.05, 0.08, 0.1, 0.15, 0.2, 0.249 }) do
+            local _, _, _, _, step = ns.MapColor(i, s)
+            eq(step, math.min(23, math.floor((i - 0.05) / 0.2 * 24)), ("thrMid %s, i %s: the straight step"):format(mid, i))
+        end
+        local r, g, b = ns.MapColor(0.05, s)
+        assert(b > r, "blue at thrLow")
+        r, g, b = ns.MapColor(0.249, s)
+        assert(r == 1 and g > 0.35 and g < 0.55, "orange just under hot")
+    end
+end)
+
 test("slash parser", function()
     local ns = boot(false)
     local s = ns.InitSettings(nil)
