@@ -98,8 +98,8 @@ player counts.
 The file holds aggregates only: per map, a smoothed and normalised intensity per cell, never a single
 death, a name, a realm, a GUID or an account. A map is published only when at least three different
 players died there (the published snapshot of relay 3460 also withholds the whole file until the
-flavour has three contributors). Deaths caused by other players and deaths at the level cap are never
-counted.
+flavour has three contributors). Deaths caused by other players and deaths above the flavour's level cap
+are never counted; deaths at the cap are.
 
 ## Tests
 
