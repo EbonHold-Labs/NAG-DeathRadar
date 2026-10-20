@@ -301,8 +301,8 @@ function ns.Q(mapData, ix, iy)
     return col and col[iy] or 0
 end
 
---- The danger colours, ONE scale for the radar and the world map: light blue / yellow / red by the settings'
---- bands, alpha growing with intensity i (q / 100) inside a band; nil below thrLow. This alpha is the radar's:
+--- The radar's danger colours: light blue / yellow / red by the settings' bands (the world map ramps instead,
+--- ns.MapColor, and shares only the red: i >= hot), alpha growing with intensity i (q / 100) inside a band; nil below thrLow. This alpha is the radar's:
 --- red (i >= hot) starts at 0.5 + 0.3 * hot (0.575 at the default 0.25).
 function ns.Color(i, s)
     if i >= s.hot then return 1, 0, 0, 0.5 + 0.3 * math.min(i, 1) end
