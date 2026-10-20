@@ -9,6 +9,7 @@
 local S = {}
 
 local PROBED = { CreateMaskTexture = true, GetCanvas = true, GetCanvasContainer = true, GetCanvasZoomPercent = true,
+    GetScaleForMinZoom = true, GetScaleForMaxZoom = true,
     GetPinFrameLevelsManager = true, OnMapChanged = true, OnCanvasScaleChanged = true }
 
 local REGION, FRAME, CHECK, TEXTURE, MASK, FONT = {}, {}, {}, {}, {}, {}
@@ -40,7 +41,13 @@ function REGION:IsShown() return self._shown end
 function REGION:SetAlpha(a) self._alpha = a end
 
 -- Frames.
-function FRAME:SetScript(k, f) self._scripts[k] = f end
+-- As the client does: a mouse or drag script turns the frame's mouse on.
+local MOUSE_SCRIPTS = { OnDragStart = true, OnDragStop = true, OnMouseDown = true, OnMouseUp = true, OnEnter = true,
+    OnLeave = true }
+function FRAME:SetScript(k, f)
+    self._scripts[k] = f
+    if f and MOUSE_SCRIPTS[k] then self._mouse = true end
+end
 function FRAME:GetScript(k) return self._scripts[k] end
 function FRAME:HookScript(k, f)
     local old = self._scripts[k]
@@ -94,6 +101,7 @@ function S.reset(opts)
     opts = opts or {}
     S.objects, S.events, S.prints, S.setPoints = {}, {}, {}, 0
     S.mapID, S.zoom, S.worldBounds, S.worldSize = 0, 1, {}, {}
+    S.minScale, S.maxScale = 0.5, 2 -- the open map's zoom scales; equal on a map that cannot zoom
     S.player = { map = nil, x = nil, y = nil, facing = 0, alt = false, combat = false }
     S.panels, S.opened = {}, {}
 
@@ -122,7 +130,10 @@ function S.reset(opts)
     if opts.canvas ~= false then
         W.GetCanvas = function() return canvas end
         W.GetCanvasContainer = function() return container end
-        W.GetCanvasZoomPercent = function() return S.zoom end
+        -- PercentageBetween(scale, min, max) answers 0 when min == max, whatever the scale.
+        W.GetCanvasZoomPercent = function() return S.minScale == S.maxScale and 0 or S.zoom end
+        W.GetScaleForMinZoom = function() return S.minScale end
+        W.GetScaleForMaxZoom = function() return S.maxScale end
         W.GetPinFrameLevelsManager = function()
             return { GetValidFrameLevel = function(_, kind)
                 return kind == "PIN_FRAME_LEVEL_MAP_EXPLORATION" and 2003 or 2000

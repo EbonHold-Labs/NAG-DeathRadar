@@ -303,6 +303,17 @@ test("slash parser", function()
     s = ns.Command(s, "reset"); eq(s.radar, true); eq(s.hot, 0.25); eq(s.overlay, true); eq(s.yards, 100)
 end)
 
+test("slash: nan and inf are refused and leave the settings as they were", function()
+    local ns = boot(false)
+    for _, msg in ipairs({ "range nan", "range inf", "range -inf", "threshold nan", "threshold inf", "scale nan" }) do
+        local s = ns.InitSettings(nil)
+        local reply
+        s, reply = ns.Command(s, msg)
+        eq(s.yards, 100, msg .. " yards"); eq(s.hot, 0.25, msg .. " hot"); eq(s.scale, 1, msg .. " scale")
+        assert(reply[1]:find(" takes ", 1, true), msg .. ": the usage line, got " .. tostring(reply[1]))
+    end
+end)
+
 test("settings: missing, wrongly typed and out-of-range keys come back from defaults", function()
     local ns = boot(false)
     local s = ns.InitSettings({ scale = "big", yards = 5000, hot = 0 / 0, radar = false, custom = 1, radarPos = { x = "a" } })
@@ -343,6 +354,21 @@ test("overlay: draws on map change, coarser zoomed out, no data for this map, of
     eq(ns.OverlayCount(), 0, "overlay off"); eq(ns.OverlayNote(), nil, "and quiet")
     SlashCmdList.NAGDEATHRADAR("map on")
     assert(ns.OverlayCount() > 0, "back")
+end)
+
+test("overlay: a map that cannot zoom is drawn at full detail; a zoomable one by its zoom", function()
+    local ns = boot("nagdeath_base0.lua")
+    local cells = 0
+    for _, col in pairs(ns.data.map[ELWYNN]) do for _ in pairs(col) do cells = cells + 1 end end
+    S.mapID, S.zoom, S.minScale, S.maxScale = ELWYNN, 0.5, 1, 1 -- one zoom scale: the client answers 0 %
+    WorldMapFrame:OnMapChanged()
+    eq(ns.OverlayCount(), cells, "single scale: every cell")
+    S.minScale, S.maxScale, S.zoom = 0.5, 2, 0
+    WorldMapFrame:OnCanvasScaleChanged()
+    assert(ns.OverlayCount() < cells, "zoomable and zoomed out: coarser, got " .. ns.OverlayCount())
+    S.zoom = 1
+    WorldMapFrame:OnCanvasScaleChanged()
+    eq(ns.OverlayCount(), cells, "zoomable and zoomed in: every cell")
 end)
 
 test("overlay: the corner cell of a 0-based file is drawn in the top-right corner", function()

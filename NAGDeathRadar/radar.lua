@@ -421,8 +421,6 @@ function R.Init()
     frame:SetSize(size, size)
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
-    frame:EnableMouse(false)
-    R.mouse = false
     frame:RegisterForDrag("LeftButton")
     -- The radar's circle: the field and every blip are cut by it.
     local clip = circleMask(frame)
@@ -492,6 +490,9 @@ function R.Init()
         end
     end)
     frame:RegisterEvent("MODIFIER_STATE_CHANGED")
+    -- After the drag scripts: setting a mouse script turns the frame's mouse on.
+    frame:EnableMouse(false)
+    R.mouse = false
     ns.RadarFrame = frame
 end
 

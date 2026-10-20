@@ -214,7 +214,8 @@ function ns.Command(s, msg)
         return s, { "rim tint " .. (s.rimTint and "on" or "off") }
     elseif NUMBERS[cmd] then
         local key, n, r = NUMBERS[cmd], tonumber(arg), ns.RANGES[NUMBERS[cmd]]
-        if not n or n < r[1] or n > r[2] then
+        -- tonumber reads "nan" and "inf": NaN fails every comparison, so it is refused by name, inf with it.
+        if not n or n ~= n or n == math.huge or n == -math.huge or n < r[1] or n > r[2] then
             return s, { ("%s takes %s to %s (now %s)"):format(cmd, r[1], r[2], tostring(s[key])) }
         end
         s[key] = n

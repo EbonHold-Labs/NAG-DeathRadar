@@ -2,9 +2,14 @@
 --- redrawn when the map, the zoom bucket or the canvas size changes. Textures are pooled, never destroyed.
 --- Only where the client's WorldMapFrame has a canvas (GetCanvas); elsewhere the module does nothing.
 ---
---- THE LAYER sits just above the map art and the explored-area overlays and below every pin and the player
+--- THE LAYER sits just above the map art and the explored-area overlays and below the pins and the player
 --- arrow: its frame level is the map's own "PIN_FRAME_LEVEL_MAP_EXPLORATION" level plus one, read (never
---- changed) from the map's pin frame level manager; without that manager, one above the canvas.
+--- changed) from the map's pin frame level manager; without that manager, one above the canvas. The levels are
+--- contiguous, so that level is the next pin type's own. On Forever (Mainline map: PLUNDERSTORM_CIRCLE) and on
+--- the Vanilla and TBC maps (GARRISON_PLOT) that type is unused there, so the layer is alone at its level. On
+--- the Wrath and Cata maps (Titan Reforged, MoP Classic) it is QUEST_BLOB: the heat and the quest-area blobs
+--- share the level and their order is not defined (both are see-through). Reserving a level of our own would
+--- mean writing into Blizzard's manager (InsertFrameLevelAbove), which is not done: it would taint the map.
 ---
 --- License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/legalcode)
 --- Authors: @Rakizi, @Fonsas
@@ -75,7 +80,17 @@ local function currentMap(W)
     if ok and not ns.IsSecret(map) and type(map) == "number" then return map end
 end
 
+--- The canvas zoom 0..1. A map with a single zoom scale answers 0 % (PercentageBetween with min == max), which
+--- would draw it at the coarsest level for good: such a map is drawn at full detail (1).
 local function zoom(W)
+    if type(W.GetScaleForMinZoom) == "function" and type(W.GetScaleForMaxZoom) == "function" then
+        local okLo, lo = pcall(W.GetScaleForMinZoom, W)
+        local okHi, hi = pcall(W.GetScaleForMaxZoom, W)
+        if okLo and okHi and not ns.IsSecret(lo) and not ns.IsSecret(hi) and type(lo) == "number"
+            and type(hi) == "number" and hi <= lo then
+            return 1
+        end
+    end
     if type(W.GetCanvasZoomPercent) ~= "function" then return nil end
     local ok, z = pcall(W.GetCanvasZoomPercent, W)
     if ok and not ns.IsSecret(z) then return z end

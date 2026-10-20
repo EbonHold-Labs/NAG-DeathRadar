@@ -23,7 +23,12 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
 - [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows yellow-to-red squares.
 - [ ] The squares sit over the map art and the explored-area art, BELOW the pins (flight points, quest
       markers) and the player arrow.
-- [ ] Zooming the map in and out changes the square size (25 -> 50 -> 100 per side) and nothing lags.
+- [ ] Titan Reforged and MoP Classic only: with a quest whose objective area shows on the map, note
+      whether the heat squares draw over or under the quest area. They share its frame level there, so
+      either is possible; check that both stay readable.
+- [ ] On a zoomable map, zooming in and out changes the square size (25 -> 50 -> 100 per side) and nothing
+      lags. On a map that cannot zoom (a city or small zone where the mouse wheel does nothing), the
+      squares are at full detail (100 per side).
 - [ ] Resize or maximise the map window: the squares stay aligned with the map.
 - [ ] A continent, or a zone without data: no squares, the note "no data for this map".
 - [ ] `/ndr map off` hides the squares and the note; `/ndr map on` brings them back.
