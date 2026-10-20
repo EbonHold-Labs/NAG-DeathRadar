@@ -200,6 +200,64 @@ function ns.LoadFine(raw)
     return { map = maps, coarse = coarse, grid = grid, maps = nMaps }, "ok"
 end
 
+-- ============================ flavor ============================
+
+-- The plain toc loads on Classic Era, TBC, Wrath, Titan and Mists, and the data file the app drops is one game's
+-- deaths (its `flavor`: today only "camelot", WoW Forever, collects). The radar draws a file only on the game it
+-- came from. The client is named as NAG names it (Version.lua GetExpansion), mirrored here so the radar needs no
+-- NAG: Forever reports interface 16001 and WOW_PROJECT_ID 1 like mainline, so the interface (16000..19999) or
+-- the 1.60+ build string tells it, never the project id.
+local FOREVER_MIN_INTERFACE = 16000
+
+local function isForeverBuild(version, interface)
+    if interface and interface >= FOREVER_MIN_INTERFACE and interface < 20000 then return true end
+    local minor = type(version) == "string" and tonumber(version:match("^1%.(%d+)"))
+    return minor ~= nil and minor >= 60
+end
+
+--- The running client's flavor, in NAG's names: "camelot" (WoW Forever), "vanilla", "sod", "tbc", "wrath",
+--- "titan", "cata", "mists", "mainline"; nil when the client cannot be told (no GetBuildInfo).
+function ns.ClientFlavor()
+    local gbi = rawget(_G, "GetBuildInfo")
+    if type(gbi) ~= "function" then return nil end
+    local ok, version, _, _, interface = pcall(gbi)
+    if not ok then return nil end
+    interface = tonumber(interface) or 0
+    local major = floor(interface / 10000)
+    if interface <= 0 and type(version) == "string" then major = tonumber(version:match("^(%d+)")) or 0 end
+    if major == 1 then
+        if isForeverBuild(version, interface) then return "camelot" end
+        local engraving = rawget(_G, "C_Engraving")
+        if type(engraving) == "table" and type(engraving.IsEngravingEnabled) == "function" then
+            local okE, on = pcall(engraving.IsEngravingEnabled)
+            if okE and on == true then return "sod" end
+        end
+        return "vanilla"
+    elseif major == 2 then
+        return "tbc"
+    elseif major == 3 then
+        local minor = type(version) == "string" and tonumber(version:match("^3%.(%d+)"))
+        return (minor and minor >= 80) and "titan" or "wrath"
+    elseif major == 4 then
+        return "cata"
+    elseif major == 5 then
+        return "mists"
+    elseif major >= 10 then
+        return "mainline"
+    end
+end
+
+--- True when a data file's flavor is the running game's. A file without one is the first contract's, which only
+--- WoW Forever ever wrote: it draws on Forever only. A client that cannot be told takes any file.
+function ns.FlavorMatches(flavor)
+    local client = ns.ClientFlavor()
+    if client == nil then return true end
+    if flavor == nil then return client == "camelot" end
+    return flavor == client
+end
+
+ns.NO_DATA_GAME = "no data for this game"
+
 --- The data check. Reads only the fields it knows and ignores every other one. Returns the data or nil, and a
 --- reason. The data's cells are normalised to 0-based indices (0..99) whatever the file's base:
 --- `cellBase` is read from the file, 1 when absent (relay 3460 plus the cell-base amendment). Every way the file
@@ -212,6 +270,7 @@ function ns.LoadData(raw)
     if base == nil then base = 1 end
     if base ~= 0 and base ~= 1 then return nil, "cellBase" end
     if type(raw.map) ~= "table" then return nil, "map" end
+    if not ns.FlavorMatches(raw.flavor) then return nil, "flavor" end
     local GRID = ns.GRID
     local maps, nMaps, nCells = {}, 0, 0
     for m, cols in pairs(raw.map) do
@@ -262,10 +321,16 @@ end
 ns.NO_DATA = "no data yet"
 ns.NO_MAP_DATA = "no data for this map"
 
+--- The note when nothing is drawn for the whole file: "no data for this game" for another game's file, else
+--- "no data yet".
+function ns.NoDataText()
+    return ns.dataReason == "flavor" and ns.NO_DATA_GAME or ns.NO_DATA
+end
+
 --- One line on the data: "no data yet", or its date and size.
 function ns.StatusLine()
     local d = ns.data
-    if not d then return ns.NO_DATA end
+    if not d then return ns.NoDataText() end
     local line = "death data from " .. (ns.DateText(d.stamp) or "an unknown date")
     if d.rows and d.contributors then
         line = line .. (": %d deaths, %d players"):format(d.rows, d.contributors)
