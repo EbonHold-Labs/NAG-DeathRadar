@@ -1,7 +1,7 @@
---- NAG Death Radar: the settings panel. Plain frames and four check boxes, registered with the Settings API
---- where the client has it (Settings.RegisterCanvasLayoutCategory), else with the old interface options
---- (InterfaceOptions_AddCategory); both are probed, neither is assumed. The numbers (size, range, threshold) are
---- set with /ndr.
+--- NAG Death Radar: the settings panel. Plain frames, five check boxes and two buttons that step through the
+--- ring and grid art, registered with the Settings API where the client has it
+--- (Settings.RegisterCanvasLayoutCategory), else with the old interface options (InterfaceOptions_AddCategory);
+--- both are probed, neither is assumed. The numbers (size, range, threshold) are set with /ndr.
 ---
 --- License: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/legalcode)
 --- Authors: @Rakizi, @Fonsas

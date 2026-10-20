@@ -98,6 +98,8 @@ settings panel. The fixtures in `tests/fixtures/` are written by the server's ow
 python3 -I tools/make_fixtures.py --tools-repo <a NextActionGuide-Tools clone> [--rev origin/main]
 ```
 
+The radar's hot ring, `Media/HotRing.tga`, is ours: `python3 -I tools/make_hotring.py` writes it.
+
 The in-game checks are in [CHECKLIST.md](CHECKLIST.md).
 
 ## Licence

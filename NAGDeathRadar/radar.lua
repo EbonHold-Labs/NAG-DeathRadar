@@ -50,21 +50,27 @@ local MEDIA = "Interface\\AddOns\\NAGDeathRadar\\Media\\"
 local CIRCLE_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 local DISC = CIRCLE_MASK  -- a white disc on transparent: tinted, a round blip
 local ARROW = "Interface\\Minimap\\MinimapArrow"
--- Fonsas's rings (Media/frameN.png, 250 x 250): `hole` is the widest radius of the hole and `outer` the furthest
--- opaque pixel (alpha > 128), each as a share of the width, from 72 rays out of the centre. The hole's widest
--- radius, so no gap shows between the field and the ring; the outer edge's furthest, so the frame holds it all.
+-- Fonsas's rings (Media/frameN.png, 250 x 250), each as a share of the width. `hole`: the widest radius of the
+-- hole (alpha > 128, 72 rays out of the centre), so no gap shows between the field and the ring. `outer`: the
+-- furthest corner of any opaque pixel from the centre (125, 125), every pixel read, so the frame holds it all.
 local RINGS = {
-    [1] = { file = "frame1.png", hole = 0.314, outer = 0.500 },  -- dark iron, dragons (hole 78.5 px, edge 125)
-    [2] = { file = "frame2.png", hole = 0.342, outer = 0.456 },  -- plain silver (85.5, 114)
-    [8] = { file = "frame8.png", hole = 0.284, outer = 0.474 },  -- spiked dark (71, 118.5)
-    [10] = { file = "frame10.png", hole = 0.354, outer = 0.494 }, -- cyan tech (88.5, 123.5)
+    [1] = { file = "frame1.png", hole = 0.314, outer = 0.509 },  -- dark iron, dragons (hole 78.5 px, edge 127.35)
+    [2] = { file = "frame2.png", hole = 0.342, outer = 0.457 },  -- plain silver (85.5, 114.28)
+    [8] = { file = "frame8.png", hole = 0.284, outer = 0.490 },  -- spiked dark (71, 122.43)
+    [10] = { file = "frame10.png", hole = 0.354, outer = 0.495 }, -- cyan tech (88.5, 123.82)
 }
+-- The hot ring (Media/HotRing.tga, ours, tools/make_hotring.py): a white band from HOT_INNER to HOT_OUTER of its
+-- width from the centre, tinted red and laid OVER the ring art while the player stands in a hot cell, so the
+-- cue is the same plain red whatever the art's colours (a tint of the art itself turns cyan or iron dark, not
+-- red). With the art: its inner edge on the art's hole. Without: its outer edge on the plain rim's.
+local HOT_RING = "HotRing.tga"
+local HOT_INNER, HOT_OUTER = 0.425, 0.5
+local HOT_COLOR = { 1, 0.1, 0.1, 0.9 }
 -- The grids (Media/radarGridsN.png, 250 x 250): both discs measure the same, radius 98.5 to 102 px.
 local GRIDS = { [1] = "radarGrids1.png", [2] = "radarGrids2.png" } -- green, blue
 local GRID_DISC = 0.40    -- the disc's radius as a share of the width (100 of 250 px)
 local DIM = 0.3           -- the radar's alpha with no position or no data for the map
 local RIM_COLOR, RIM_HOT = { 0.1, 0.1, 0.1, 1 }, { 0.9, 0.1, 0.1, 1 }
-local ART_HOT = { 1, 0.35, 0.35 }
 local NO_POSITION = "no position here"
 
 R.RADIUS, R.BORDER, R.POINTER, R.MAX_BLIPS, R.TICK, R.DIM = RADIUS, BORDER, POINTER, MAX_BLIPS, TICK, DIM
@@ -243,7 +249,7 @@ local function setRim(hot)
     rimHot = hot
     local c = hot and RIM_HOT or RIM_COLOR
     frame.rim:SetColorTexture(c[1], c[2], c[3], c[4])
-    if hot then frame.art:SetVertexColor(ART_HOT[1], ART_HOT[2], ART_HOT[3]) else frame.art:SetVertexColor(1, 1, 1) end
+    frame.hot:SetShown(hot)
 end
 
 local function clearPieces()
@@ -448,8 +454,29 @@ function R.ApplyLook(s)
     frame.grid:SetShown(s.art)
     local edge = s.art and artSize * ring.outer or RADIUS + BORDER
     frame:SetSize(edge * 2, edge * 2)
+    local hot = s.art and (RADIUS + BORDER / 2) / HOT_INNER or (RADIUS + BORDER) / HOT_OUTER
+    frame.hot:SetSize(hot, hot)
     frame.dist:ClearAllPoints()
     frame.dist:SetPoint("TOP", frame, "CENTER", 0, -edge - 2)
+end
+
+--- True when the game tooltip is the radar's own: a modifier change or a leave never hides another owner's.
+local function tooltipIsOurs()
+    local T = _G.GameTooltip
+    if type(T) ~= "table" then return false end
+    if type(T.IsOwned) == "function" then
+        local ok, v = pcall(T.IsOwned, T, frame)
+        return ok and v == true
+    end
+    if type(T.GetOwner) == "function" then
+        local ok, o = pcall(T.GetOwner, T)
+        return ok and o == frame
+    end
+    return false
+end
+
+local function hideTooltip()
+    if tooltipIsOurs() then GameTooltip:Hide() end
 end
 
 local function showTooltip()
@@ -507,6 +534,13 @@ function R.Init()
     local art = frame:CreateTexture(nil, "OVERLAY", nil, 0)
     art:SetPoint("CENTER", frame, "CENTER", 0, 0)
     frame.art = art
+    -- The hot ring over the art (R.ApplyLook sizes it, setRim shows it).
+    local hotRing = frame:CreateTexture(nil, "OVERLAY", nil, 1)
+    hotRing:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    hotRing:SetTexture(MEDIA .. HOT_RING)
+    hotRing:SetVertexColor(HOT_COLOR[1], HOT_COLOR[2], HOT_COLOR[3], HOT_COLOR[4])
+    hotRing:Hide()
+    frame.hot = hotRing
     -- The player: the facing is up, so the arrow never turns.
     local arrow = frame:CreateTexture(nil, "OVERLAY", nil, 2)
     arrow:SetSize(ARROW_SIZE, ARROW_SIZE)
@@ -541,11 +575,11 @@ function R.Init()
         if button == "RightButton" and altDown() and not ns.InCombat() and ns.OpenPanel then ns.OpenPanel() end
     end)
     frame:SetScript("OnEnter", showTooltip)
-    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    frame:SetScript("OnLeave", hideTooltip)
     frame:SetScript("OnEvent", function(_, event)
         if event == "MODIFIER_STATE_CHANGED" then
             if R.dragging and not altDown() then stopDrag() end
-            if not altDown() then GameTooltip:Hide() end
+            if not altDown() then hideTooltip() end
             R.UpdateMouse()
         end
     end)

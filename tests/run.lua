@@ -545,7 +545,7 @@ test("radar: the mouse only while Alt is held; a lock stops the drag", function(
     eq(f._moving, false, "locked: no drag")
 end)
 
-local RING_GEOMETRY = { [1] = { 0.314, 0.500 }, [2] = { 0.342, 0.456 }, [8] = { 0.284, 0.474 }, [10] = { 0.354, 0.494 } }
+local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
 
@@ -606,6 +606,51 @@ test("radar: right-click opens the settings only with Alt, out of combat; the to
     S.player.combat = false
     f._scripts.OnMouseUp(f, "RightButton")
     eq(S.opened[1], 77, "Alt + right-click out of combat: the panel")
+end)
+
+test("radar: a modifier change hides only our tooltip, never another owner's", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    local bag = CreateFrame("Frame")
+    for _, shown in ipairs({ true, false }) do
+        SlashCmdList.NAGDEATHRADAR(shown and "show" or "hide")
+        GameTooltip:SetOwner(bag, "ANCHOR_RIGHT"); GameTooltip:Show()
+        S.player.alt = false; S.fire("MODIFIER_STATE_CHANGED") -- a Shift or Ctrl press
+        eq(GameTooltip._shown, true, "another owner's tooltip survives, radar shown = " .. tostring(shown))
+        f._scripts.OnLeave(f)
+        eq(GameTooltip._shown, true, "and our OnLeave leaves it alone")
+    end
+    SlashCmdList.NAGDEATHRADAR("show")
+    S.player.alt = true; S.fire("MODIFIER_STATE_CHANGED")
+    f._scripts.OnEnter(f)
+    eq(GameTooltip:GetOwner(), f, "ours"); eq(GameTooltip._shown, true)
+    S.player.alt = false; S.fire("MODIFIER_STATE_CHANGED")
+    eq(GameTooltip._shown, false, "ours hides on Alt release")
+end)
+
+test("radar: the hot rim is a red ring over the art on every ring, and with the art off", function()
+    local ns = bootRadar()
+    local f, R = ns.RadarFrame, ns.Radar
+    local hx, hy = hottestIn(ns, ELWYNN)
+    for _, look in ipairs({ "ring 1", "ring 2", "ring 8", "ring 10", "art off" }) do
+        SlashCmdList.NAGDEATHRADAR(look)
+        standAt(ELWYNN, hx, hy)
+        R.Paint()
+        local hot = f.hot
+        eq(hot:IsShown(), true, look .. ": the hot ring shows")
+        eq(hot._layer, "OVERLAY", look .. ": over the art")
+        local c = hot._vertex
+        assert(c[1] >= 0.9 and c[2] <= 0.2 and c[3] <= 0.2, look .. ": red")
+        assert(hot._w <= f._w + 1e-6, look .. ": inside the frame")
+        standAt(ELWYNN, 5, 5)
+        R.Paint()
+        eq(hot:IsShown(), false, look .. ": cleared when not hot")
+    end
+    SlashCmdList.NAGDEATHRADAR("art on")
+    SlashCmdList.NAGDEATHRADAR("tint off")
+    standAt(ELWYNN, hx, hy)
+    R.Paint()
+    eq(f.hot:IsShown(), false, "tint off: no hot ring")
 end)
 
 test("radar: dimmed without a position or data for the map, the note readable; undimmed after", function()

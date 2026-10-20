@@ -55,8 +55,10 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
       rim when the spot comes within range.
 - [ ] Westfall or the Barrens (maps that are not square): walking straight east and straight north
       moves the picture at the same speed.
-- [ ] Stand in a red cell: the rim turns red and the line says "danger: you stand in a hot zone";
-      `/ndr tint off` keeps the rim dark. No screen glow, no sound.
+- [ ] Stand in a red cell: a plain red band lies over the ring's inner edge and the line says "danger: you
+      stand in a hot zone"; it reads red on `/ndr ring 1`, `2`, `8`, `10` and with `/ndr art off` (then over
+      the plain rim). This checks that `Media/HotRing.tga` loads. Step out: it goes. `/ndr tint off`: no
+      band. No screen glow, no sound.
 - [ ] In a dungeon or a battleground: "no position here" or "no data for this map", no error; the radar
       dims to about 30 % and the note stays readable. Back outside, it is full again.
 - [ ] `/ndr range 50` and `/ndr scale 1.5`: the picture zooms and the radar grows, in place.
@@ -65,6 +67,8 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
 - [ ] Without Alt, clicking or right-click-turning the camera over the radar acts on the world (the radar
       takes no click).
 - [ ] Alt + drag moves the radar; releasing Alt ends the drag. `/ndr lock`: Alt + drag does nothing.
+- [ ] Hover a bag item or an NPC so its tooltip shows, then press and release Shift, Ctrl and Alt: that
+      tooltip stays (with the radar shown and with `/ndr hide`).
 - [ ] Hold Alt and hover the radar: a tooltip with the data line and "Right-click: settings". Alt +
       right-click opens the settings panel; in combat neither shows. Without Alt, a right-click on it turns
       the camera as usual.

@@ -92,6 +92,9 @@ function FONT:SetIgnoreParentAlpha(v) self._ownAlpha = v end
 -- The game tooltip.
 function TOOLTIP:SetOwner(owner) self._owner = owner; self._lines = {} end
 function TOOLTIP:AddLine(t) table.insert(self._lines, t) end
+function TOOLTIP:GetOwner() return self._owner end
+function TOOLTIP:IsOwned(f) return self._owner == f end
+
 
 S.KINDS = { REGION = REGION, FRAME = FRAME, TEXTURE = TEXTURE, FONT = FONT }
 
