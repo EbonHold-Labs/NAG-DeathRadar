@@ -214,7 +214,7 @@ function O.Redraw(force)
     lastMap = map
     hideAll()
     if not s.overlay then return say(nil) end
-    if not ns.data then return say(ns.NO_DATA) end
+    if not ns.data then return say(ns.NoDataText()) end
     local src, from = O.Source(map, s)
     if not src then return say(ns.NO_MAP_DATA) end
     say(nil)

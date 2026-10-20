@@ -322,7 +322,7 @@ end
 function R.Paint()
     if not frame then return end
     local s = NAGDeathRadarSettings
-    if not ns.data then note(ns.NO_DATA); return ns.NO_DATA end
+    if not ns.data then local why = ns.NoDataText(); note(why); return why end
     local state, map, px, py = mapRead()
     if state ~= "plain" then note(NO_POSITION, true); return NO_POSITION end
     local md = ns.MapData(map)
@@ -587,7 +587,7 @@ function R.Refresh(s)
     local run = s.radar and ns.data ~= nil
     frame:SetScript("OnUpdate", run and onUpdate or nil)
     if not ns.data then
-        note(ns.NO_DATA) -- full alpha: nothing to dim for, the note is the whole radar
+        note(ns.NoDataText()) -- full alpha: nothing to dim for, the note is the whole radar
     elseif run then
         sinceTick = 0
         R.Paint()

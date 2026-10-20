@@ -27,7 +27,8 @@ without NAG.
 | WoW Forever | `NAGDeathRadar_camelot.toc` (`AllowLoadGameType: camelot`) | 16001 |
 | Classic Era, Anniversary (TBC), Titan Reforged, MoP Classic | `NAGDeathRadar.toc` | 11509, 20506, 38000, 38002, 50504 |
 
-Only Forever collects deaths today, so every other client shows "no data yet".
+Only Forever collects deaths today. The radar draws a file only on the game named in its `flavor`, so every
+other client shows "no data for this game" (or "no data yet" when no file is there at all).
 
 ## Commands
 
@@ -92,6 +93,10 @@ NAGDeathData = {
 - **Unknown fields are ignored**, so the server can add fields without an addon update.
 - **"No data yet"** is one state for every unusable file: missing, `NAGDeathData` nil, another `v`, a
   `map` that is not a table or holds no valid cell, or a bad `cellBase`. Nothing errors and nothing ticks.
+- **"No data for this game"**: the file's `flavor` is not the running client's, told as NAG tells it
+  (interface 16000..19999 or a 1.60+ build is Forever, `camelot`; then `vanilla`/`sod`, `tbc`, `wrath`/`titan`,
+  `cata`, `mists`, `mainline`). The file is not loaded: nothing is drawn on the map or the radar. A file
+  without `flavor` (only Forever ever wrote one) draws on Forever only.
 - On a map the file has no cells for, the radar and the world map say **"no data for this map"**.
 
 The settings panel and `/ndr` show the data's date (UTC) and, when the file carries them, its row and
