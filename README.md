@@ -3,8 +3,10 @@
 A small, free World of Warcraft addon from the Next Action Guide team. It shows where players died while
 levelling:
 
-- a **heatmap on the world map**: the danger zones of the open map in the radar's own colours (light
-  blue from 0.02, yellow from 0.10, red from the `threshold` setting), so a cell the radar points at is red on the map too;
+- a **heatmap on the world map**: the danger zones of the open map in a smooth colour ramp, from a faint light
+  blue at 0.02 through teal-green and gold at 0.10 to orange, then reds from the `threshold` setting (the
+  radar's own red line), deepening with the danger, so a cell the radar points at is red on the map too;
+  drawn 200 x 200 per map at every zoom, smoothed between cells (the file's `fine` cells where it has them);
   lighter than on the radar so the map art reads through, with its own opacity (`/ndr alpha`) and an on/off box on the map;
 - a **radar** that turns with you (the direction you face is up), shows the death cells around you and
   points to the nearest danger zone, from the rim when it is further than the radar reaches. While you
@@ -62,6 +64,8 @@ NAGDeathData = {
   next = 1792540800, rows = 231, contributors = 5,
   flavor = "camelot",
   map = { [uiMapID] = { [x] = { [y] = q } } },   -- a 100 x 100 grid per map, q 1..100
+  fine = { grid = 200, cellBase = 0, levels = 64,  -- optional: finer cells (14 days, a per-cell floor)
+           [uiMapID] = { "packed runs", ... } },
   -- killers, bands, instances and any other field: ignored by the addon
 }
 ```
@@ -69,6 +73,22 @@ NAGDeathData = {
 - **The cell base.** The server bins a map position 0..10000 as `x * 100 // 10001`, so its cells are 0..99.
   The file states its base in `cellBase`; when the field is absent the addon reads cells as 1..100 (the
   first contract). The side that writes the file must state the base.
+- **The world map draws 200 x 200 per map.** From `fine` where the file has it for the map; else from `map`,
+  each cell upsampled bilinearly between cell centres; a fine cell of a cell the radar calls hot that smooths
+  under the threshold takes that cell's q, so the radar's red stays red on the map. The colours are a ramp of 24
+  shades under the threshold (light blue, teal-green, gold, orange; the alpha rising from 0.18 to 0.5) and 8
+  shades of red above it (orange-red to deep red, alpha 0.5 to 0.75). Touching cells of one
+  shade along a row are one texture; past 2,500 textures the picture is folded to 100, 50 or 25 per side,
+  keeping each square's hottest cell.
+- **`fine`, optional (the server's, Tools PR #1142).** `grid` is the cells per side (200, 300 or 400), `cellBase`
+  0 or 1 (0 when absent), `levels` 2..64 (64 when absent): a cell's level is 1..levels - 1, the map's hottest
+  cell is levels - 1, read as `q = 100 * level / (levels - 1)`. Each map is a list of strings of whole runs
+  along a row: `Y` (2 characters), `X` (2), `N` (1), then `N` level characters for the cells `x .. x+N-1` of
+  row `y`; level 0 is an empty cell. Every character is a base64 digit (`A-Z a-z 0-9 + /`, its index is its
+  value; two-digit numbers high digit first). Where a map has `fine`, the radar reads it too, folded to 100
+  per side (each cell its hottest fine cell), so a cell the radar calls hot holds a fine cell drawn red, and
+  both keep the server's per-cell floor; `map` stays for older copies and for maps `fine` leaves out. A bad
+  `fine` is ignored whole; a map whose strings break the rules is ignored alone and falls back to `map`.
 - **Unknown fields are ignored**, so the server can add fields without an addon update.
 - **"No data yet"** is one state for every unusable file: missing, `NAGDeathData` nil, another `v`, a
   `map` that is not a table or holds no valid cell, or a bad `cellBase`. Nothing errors and nothing ticks.
@@ -82,8 +102,8 @@ player counts.
 The file holds aggregates only: per map, a smoothed and normalised intensity per cell, never a single
 death, a name, a realm, a GUID or an account. A map is published only when at least three different
 players died there (the published snapshot of relay 3460 also withholds the whole file until the
-flavour has three contributors). Deaths caused by other players and deaths at the level cap are never
-counted.
+flavour has three contributors). Deaths caused by other players and deaths above the flavour's level cap
+are never counted; deaths at the cap are.
 
 ## Tests
 
@@ -94,12 +114,15 @@ lua5.1 tests/run.lua
 
 The runner loads the addon in toc order against `tests/wowstub.lua`, a strict WoW API stub (a widget
 method the stub does not know raises), and checks the data states, the cell base, the radar's maths
-(facing up, the rim clamp, yards, the nearest danger zone), the heatmap, the slash command and the
-settings panel. The fixtures in `tests/fixtures/` are written by the server's own export code:
+(facing up, the rim clamp, yards, the nearest danger zone), the heatmap (the upsampling and its band floor,
+the `fine` decoder, the row runs and the cap, the shared edges), the slash command and the settings panel. The fixtures in `tests/fixtures/` are written by the server's own export code:
 
 ```
 python3 -I tools/make_fixtures.py --tools-repo <a NextActionGuide-Tools clone> [--rev origin/main]
 ```
+
+`nagdeath_fine.lua` needs a revision with the server's `fine()` (Tools PR #1142 and after); a revision
+without it leaves that fixture as it is.
 
 The radar's hot ring, `Media/HotRing.tga`, is ours: `python3 -I tools/make_hotring.py` writes it.
 

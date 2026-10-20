@@ -6,7 +6,8 @@ client build and anything odd.
 
 To try with data before the app drops the real file: copy `tests/fixtures/nagdeath_base0.lua` over
 `NAGDeathRadar/Data/NAGDeathData.lua` and `/reload`. It has cells on Elwynn Forest (1429) and Durotar
-(1411) only, so try it on a character in one of those zones.
+(1411) only, so try it on a character in one of those zones. `tests/fixtures/nagdeath_fine.lua` is the same
+deaths with the server's `fine` field (200 per side): swap it in to see the map draw the file's own fine cells.
 
 ## 1. Load without NAG
 - [ ] With NAG disabled, the addon list shows "NAG Death Radar", not flagged out of date (on Forever the
@@ -20,17 +21,21 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
 - [ ] Put `NAGDeathData = { v = 2, map = {} }` in the file, `/reload`: the same.
 
 ## 3. The heatmap (with the fixture)
-- [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows light-blue, yellow and red
-      squares, in the radar's colours.
+- [ ] Forever 16001 has the world map canvas: the map of Elwynn Forest shows the heat as a smooth ramp, a
+      faint light blue through teal-green, gold and orange to reds that deepen with the danger, with no hard
+      steps between shades; the gold still reads on the Barrens' and Durotar's yellow-brown ground; the red is
+      where the radar's red is.
 - [ ] The squares sit over the map art and the explored-area art, BELOW the pins (flight points, quest
       markers) and the player arrow.
 - [ ] Titan Reforged and MoP Classic only: with a quest whose objective area shows on the map, note
       whether the heat squares draw over or under the quest area. They share its frame level there, so
       either is possible; check that both stay readable.
-- [ ] On a zoomable map, zooming in and out changes the square size (25 -> 50 -> 100 per side) and nothing
-      lags. The square under the spot the radar points at stays red at every zoom (a coarse square keeps
-      its hottest cell), and `/ndr threshold 0.4` turns the same cells yellow on the map and the radar. On a map that cannot zoom (a city or small zone where the mouse wheel does nothing), the
-      squares are at full detail (100 per side).
+- [ ] The squares are 200 per side at every zoom: zooming in and out only scales them, and nothing lags.
+      The picture is smooth between cells (no single blocks of 1/100 of the map). The cells under the spot
+      the radar points at are red at every zoom, and `/ndr threshold 0.4` turns the same cells yellow on the
+      map and the radar.
+- [ ] No seams: zoomed in and at in-between zoom levels, touching squares of one colour show no gap and no
+      darker line where they meet.
 - [ ] Resize or maximise the map window: the squares stay aligned with the map.
 - [ ] A continent, or a zone without data: no squares, the note "no data for this map".
 - [ ] `/ndr map off` hides the squares and the note; `/ndr map on` brings them back.

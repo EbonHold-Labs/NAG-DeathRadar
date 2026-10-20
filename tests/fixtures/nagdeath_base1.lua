@@ -1,4 +1,4 @@
--- Test fixture: SYNTHETIC deaths through NextActionGuide-Tools 0dad3d1bcfa3 AnalyticsServer/deaths.py
+-- Test fixture: SYNTHETIC deaths through NextActionGuide-Tools e9cc58ec4c76 AnalyticsServer/deaths.py
 -- (validate_row, record, build, to_lua). Written by tools/make_fixtures.py; do not edit by hand.
 -- The same cells moved to 1..100, no cellBase, no published.
 NAGDeathData = {

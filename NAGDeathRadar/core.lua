@@ -11,7 +11,8 @@ local addonName, ns = ...
 local type, pairs, ipairs, pcall, floor = type, pairs, ipairs, pcall, math.floor
 
 ns.DATA_VERSION = 1 -- the NAGDeathData.v this addon reads
-ns.GRID = 100       -- cells per side of every uiMapID
+ns.GRID = 100       -- cells per side of every uiMapID in `map` (the radar's grid)
+ns.FINE_GRID = 200  -- the world map's display grid: cells per side
 ns.modules = {}     -- overlay and radar: Init(), Refresh(settings)
 
 -- ============================ client reads ============================
@@ -110,6 +111,95 @@ local function isNum(v)
     return type(v) == "number" and v == v
 end
 
+-- THE OPTIONAL `fine` FIELD (the server's, Tools PR #1142, relay 3726): finer cells for the world map, beside
+-- `map`, which stays for older copies.
+--   fine = { grid = 200, cellBase = 0, levels = 64, [uiMapID] = { "packed", "packed", ... } }
+-- grid: cells per side, a multiple of 100 from FINE_GRID to 400 (never coarser than the map draws, which would leave
+-- holes; a whole multiple, so each fine cell folds into one radar cell, where the server binned its deaths).
+-- cellBase: 0 or 1, 0 when absent. levels: 2..64, 64 when absent; a cell's level is 1..levels - 1, the map's
+-- hottest cell is levels - 1, read as q = 100 * level / (levels - 1). Each string holds whole runs along a row:
+-- Y (2 chars), X (2 chars), N (1 char, 1 or more), then N level characters for the cells x .. x + N - 1 of row y;
+-- a level 0 is an empty cell (it bridges a short gap). Every character is a base64 digit (FINE_B64) whose value
+-- is its index; two-digit numbers are high digit first. A field that breaks any of this is ignored and the map
+-- draws from `map`; a map whose strings break it is ignored alone.
+ns.FINE_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+ns.FINE_MAX_GRID = 400
+
+local B64 = {} -- a character's byte -> its digit value
+for i = 1, #ns.FINE_B64 do B64[ns.FINE_B64:byte(i)] = i - 1 end
+
+--- One map's list of packed strings -> its 0-based grid { [x] = { [y] = q } } and cell count, or nil.
+function ns.DecodeFineMap(list, grid, base, levels)
+    if type(list) ~= "table" or #list == 0 then return nil end
+    local out, n = {}, 0
+    for i = 1, #list do
+        local s = list[i]
+        if type(s) ~= "string" then return nil end
+        local p, len = 1, #s
+        while p <= len do
+            if p + 4 > len then return nil end
+            local y1, y2, x1, x2, c = B64[s:byte(p)], B64[s:byte(p + 1)], B64[s:byte(p + 2)], B64[s:byte(p + 3)],
+                B64[s:byte(p + 4)]
+            if not (y1 and y2 and x1 and x2 and c) or c < 1 or p + 4 + c > len then return nil end
+            local y, x = y1 * 64 + y2 - base, x1 * 64 + x2 - base
+            if y < 0 or y >= grid or x < 0 or x + c > grid then return nil end
+            for k = 0, c - 1 do
+                local q = B64[s:byte(p + 5 + k)]
+                if not q or q >= levels then return nil end
+                if q > 0 then
+                    local col = out[x + k]
+                    if not col then col = {}; out[x + k] = col end
+                    if col[y] == nil then n = n + 1 end
+                    col[y] = 100 * q / (levels - 1)
+                end
+            end
+            p = p + 5 + c
+        end
+    end
+    if n == 0 then return nil end
+    return out, n
+end
+
+--- A 0-based grid of `from` cells per side folded to the 0-based ns.GRID grid, keeping each cell's highest q.
+function ns.FoldToGrid(src, from)
+    local out = {}
+    for jx, col in pairs(src) do
+        local ix = floor(jx * ns.GRID / from)
+        local o = out[ix]
+        if not o then o = {}; out[ix] = o end
+        for jy, q in pairs(col) do
+            local iy = floor(jy * ns.GRID / from)
+            if (o[iy] or 0) < q then o[iy] = q end
+        end
+    end
+    return out
+end
+
+--- The `fine` field -> { map = { [uiMapID] = grid }, grid = cells per side, maps = count } and "ok", or nil and a
+--- reason ("absent", "format", "grid", "cellBase", "levels", "empty").
+function ns.LoadFine(raw)
+    local f = raw.fine
+    if f == nil then return nil, "absent" end
+    if type(f) ~= "table" then return nil, "format" end
+    local grid, base, levels = f.grid, f.cellBase, f.levels
+    if base == nil then base = 0 end
+    if levels == nil then levels = #ns.FINE_B64 end
+    if not isInt(grid) or grid % ns.GRID ~= 0 or grid < ns.FINE_GRID or grid > ns.FINE_MAX_GRID then
+        return nil, "grid"
+    end
+    if base ~= 0 and base ~= 1 then return nil, "cellBase" end
+    if not isInt(levels) or levels < 2 or levels > #ns.FINE_B64 then return nil, "levels" end
+    local maps, coarse, nMaps = {}, {}, 0
+    for m, list in pairs(f) do
+        if isInt(m) and m > 0 then
+            local g = ns.DecodeFineMap(list, grid, base, levels)
+            if g then maps[m], coarse[m], nMaps = g, ns.FoldToGrid(g, grid), nMaps + 1 end
+        end
+    end
+    if nMaps == 0 then return nil, "empty" end
+    return { map = maps, coarse = coarse, grid = grid, maps = nMaps }, "ok"
+end
+
 --- The data check. Reads only the fields it knows and ignores every other one. Returns the data or nil, and a
 --- reason. The data's cells are normalised to 0-based indices (0..99) whatever the file's base:
 --- `cellBase` is read from the file, 1 when absent (relay 3460 plus the cell-base amendment). Every way the file
@@ -149,11 +239,15 @@ function ns.LoadData(raw)
     end
     if nMaps == 0 then return nil, "empty" end
     local published = isNum(raw.published) and raw.published or nil
+    -- `fine` only adds: whatever it holds, the data above stands (a decode that raises reads no fine at all).
+    local okFine, fine, fineReason = pcall(ns.LoadFine, raw)
+    if not okFine then fine, fineReason = nil, "error" end
     return {
         map = maps, maps = nMaps, cells = nCells, base = base,
         stamp = published or (isNum(raw.generated) and raw.generated or nil), -- epoch seconds, published first
         rows = isInt(raw.rows) and raw.rows or nil,
         contributors = isInt(raw.contributors) and raw.contributors or nil,
+        fine = fine, fineReason = fineReason,
     }, "ok"
 end
 
@@ -179,10 +273,13 @@ function ns.StatusLine()
     return line .. (", %d maps"):format(d.maps)
 end
 
---- The data's grid for a uiMapID, or nil.
+--- The radar's grid (ns.GRID per side) for a uiMapID, or nil: the file's `fine` cells folded to it (each cell its
+--- hottest fine cell, so a cell the radar calls hot holds a fine cell the world map draws in the same red, and
+--- the server's per-cell floor holds on both), else `map`.
 function ns.MapData(map)
     local d = ns.data
-    return d and type(map) == "number" and d.map[map] or nil
+    if not d or type(map) ~= "number" then return nil end
+    return d.fine and d.fine.coarse[map] or d.map[map]
 end
 
 --- A map position 0..1 -> its 0-based cell 0..99, exactly as the server bins a death: the addon stores
@@ -204,8 +301,8 @@ function ns.Q(mapData, ix, iy)
     return col and col[iy] or 0
 end
 
---- The danger colours, ONE scale for the radar and the world map: light blue / yellow / red by the settings'
---- bands, alpha growing with intensity i (q / 100) inside a band; nil below thrLow. This alpha is the radar's:
+--- The radar's danger colours: light blue / yellow / red by the settings' bands (the world map ramps instead,
+--- ns.MapColor, and shares only the red: i >= hot), alpha growing with intensity i (q / 100) inside a band; nil below thrLow. This alpha is the radar's:
 --- red (i >= hot) starts at 0.5 + 0.3 * hot (0.575 at the default 0.25).
 function ns.Color(i, s)
     if i >= s.hot then return 1, 0, 0, 0.5 + 0.3 * math.min(i, 1) end
@@ -213,17 +310,52 @@ function ns.Color(i, s)
     if i >= s.thrLow then return 0, 0.8, 1, 0.3 + 0.6 * i end
 end
 
-ns.MAP_RED_FLOOR = 0.4
+ns.MAP_RED_FLOOR = 0.5
+ns.MAP_RAMP_STEPS = 24 -- shades under hot: enough to blend, few enough that touching cells share a texture
+ns.MAP_RED_STEPS = 8   -- shades of red from hot, orange-red to deep red
 
---- The world map's colour for intensity i: the same bands (ns.Color), at the lighter weight the map's first
---- ramp had, 0.25 + 0.45 * i, so the map art reads through; red never under MAP_RED_FLOOR. Times the mapAlpha
---- setting. nil below thrLow.
+-- The ramp's colours under hot (Rakizi, 2026-10-20: three flat bands read as stair-steps, the low blue as a
+-- blanket; then, in game, yellow vanished on the Barrens' and Durotar's yellow-brown ground while a flat red
+-- dominated): a light blue at thrLow, a teal-green halfway to thrMid (a straight blue-to-gold blend goes a
+-- muddy grey there, lost on tan ground), a deeper gold at thrMid, orange just under hot, the alpha rising
+-- linearly from a faint 0.18 to 0.5, so the middle (gold, about 0.34) still reads on yellow-brown terrain.
+-- Each stop sits at a quarter of the ramp; thrMid is at its middle.
+local RAMP = { { 0.35, 0.75, 1 }, { 0.3, 0.85, 0.55 }, { 1, 0.78, 0.08 }, { 1, 0.62, 0.06 }, { 1, 0.45, 0.05 } }
+local RAMP_A_LOW, RAMP_A_HOT = 0.18, 0.5
+-- Red from hot: orange-red at hot to deep red at the map's hottest, the alpha 0.5 to 0.75. Never blue, green at
+-- most 0.2: the red family, which the ramp under hot (green 0.45 and more, some blue) never reaches.
+local RED_LO, RED_HI = { 1, 0.2, 0 }, { 0.8, 0, 0 }
+local RED_A_HI = 0.75
+
+--- The world map's colour for intensity i: nil under thrLow; from thrLow to hot a ramp of MAP_RAMP_STEPS shades
+--- (light blue, teal-green, gold at thrMid, orange), the alpha rising linearly; from hot (ns.Color's own test, so a cell
+--- the radar calls hot is red on the map) the red family in MAP_RED_STEPS shades, orange-red to deep red, alpha
+--- MAP_RED_FLOOR to 0.75. Times the mapAlpha setting. The fifth value names the step: equal steps are equal
+--- colours. Thresholds in any order: where thrMid is not between thrLow and hot, the ramp goes straight from
+--- blue to orange.
 function ns.MapColor(i, s)
-    local r, g, b = ns.Color(i, s)
-    if not r then return nil end
-    local a = 0.25 + 0.45 * math.min(i, 1)
-    if i >= s.hot and a < ns.MAP_RED_FLOOR then a = ns.MAP_RED_FLOOR end
-    return r, g, b, a * s.mapAlpha
+    if i >= s.hot then
+        local u = s.hot < 1 and (math.min(i, 1) - s.hot) / (1 - s.hot) or 0
+        local k = math.min(ns.MAP_RED_STEPS - 1, floor(u * ns.MAP_RED_STEPS))
+        local w = (k + 0.5) / ns.MAP_RED_STEPS
+        return RED_LO[1] + (RED_HI[1] - RED_LO[1]) * w, RED_LO[2] + (RED_HI[2] - RED_LO[2]) * w, 0,
+            (ns.MAP_RED_FLOOR + (RED_A_HI - ns.MAP_RED_FLOOR) * w) * s.mapAlpha, 1000 + k
+    end
+    if i < s.thrLow then return nil end
+    local lo, mid, hot = s.thrLow, s.thrMid, s.hot
+    local t
+    if mid > lo and mid < hot then
+        t = i < mid and 0.5 * (i - lo) / (mid - lo) or 0.5 + 0.5 * (i - mid) / (hot - mid)
+    else
+        t = (i - lo) / (hot - lo)
+    end
+    local n = ns.MAP_RAMP_STEPS
+    local k = math.max(0, math.min(n - 1, floor(t * n)))
+    local tq = (k + 0.5) / n
+    local seg = math.min(#RAMP - 1, floor(tq * (#RAMP - 1)) + 1)
+    local a, b, w = RAMP[seg], RAMP[seg + 1], tq * (#RAMP - 1) - (seg - 1)
+    return a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w, a[3] + (b[3] - a[3]) * w,
+        (RAMP_A_LOW + (RAMP_A_HOT - RAMP_A_LOW) * tq) * s.mapAlpha, k
 end
 
 -- ============================ slash ============================

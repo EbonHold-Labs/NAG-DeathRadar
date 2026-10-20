@@ -18,6 +18,10 @@ stated per fixture):
   (cellBase = 0, the server's own 0..99 cells) and one field no reader knows (an unknown field must be ignored).
 - nagdeath_base1.lua: the same aggregate with every cell moved to 1..100 and no cellBase (the shape the
   prototype read), so the two fixtures must land on the same cells.
+- nagdeath_fine.lua: nagdeath_base0.lua plus the server's own `fine` field (Tools PR #1142, relay 3726): the
+  same deaths through the server's fine() and to_lua, and `fineExpect` (x, y, level per cell: the cells the
+  server's _pack was given, recorded around it), so the addon's decoder is checked against the server's
+  encoder. A revision without fine() leaves nagdeath_fine.lua as it is. Pass --rev of a revision with it.
 """
 import argparse
 import re
@@ -102,7 +106,7 @@ def aggregate(D):
             rows_in += out["inserted"]
     agg = D.build(conn, FLAVOR, now=NOW)
     assert str(LONELY_MAP) not in agg["maps"], "the privacy floor let a two-player map through"
-    return agg, rows_in
+    return agg, rows_in, conn
 
 
 def strip_cell_base(lua: str) -> str:
@@ -118,6 +122,27 @@ def add_fields(lua: str, fields: str) -> str:
     return head + sep + fields + tail
 
 
+def fine_fixture(D, conn):
+    """The server's `fine` for the fixture's deaths (rows received at NOW, so the window ends just after it) and
+    fineExpect: the {(x, y): level} each map's _pack call was given, as Lua triples."""
+    given = {}
+    pack = D._pack
+
+    def recording(cells):
+        out = pack(cells)
+        given[tuple(out)] = dict(cells)
+        return out
+    D._pack = recording
+    try:
+        fine = D.fine(conn, FLAVOR, NOW + 1)
+    finally:
+        D._pack = pack
+    assert fine, "the server's fine() kept no cell of the fixture's deaths"
+    expect = ", ".join("[%s] = {%s}" % (m, ",".join("{%d,%d,%d}" % (x, y, q) for (x, y), q in sorted(given[tuple(rows)].items())))
+                       for m, rows in fine.items())
+    return fine, "fineExpect = {%s},\n" % expect
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tools-repo", type=Path, required=True)
@@ -125,12 +150,17 @@ def main():
     a = ap.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         D, sha = load_server(a.tools_repo, a.rev, Path(tmp))
-        agg, rows = aggregate(D)
+        agg, rows, conn = aggregate(D)
         lua0 = D.to_lua(agg)
         agg1 = copy.deepcopy(agg)
         for e in agg1["maps"].values():
             e["cells"] = [[x + 1, y + 1, q] for x, y, q in e["cells"]]
         lua1 = strip_cell_base(D.to_lua(agg1))
+        lua_fine = None
+        if hasattr(D, "fine"):
+            fine, expect = fine_fixture(D, conn)
+            lua_fine = add_fields(D.to_lua(dict(agg, fine=fine)), "cellBase = 0,\npublished = %d,\nnext = %d,\nrows = %d,\n"
+                                  "contributors = 5,\n" % (PUBLISHED, PUBLISHED + 259200, rows) + expect)
     note = ("-- Test fixture: SYNTHETIC deaths through NextActionGuide-Tools %s AnalyticsServer/deaths.py\n"
             "-- (validate_row, record, build, to_lua). Written by tools/make_fixtures.py; do not edit by hand.\n" % sha[:12])
     base0 = add_fields(lua0, "cellBase = 0,\npublished = %d,\nnext = %d,\nrows = %d,\ncontributors = 5,\n"
@@ -141,8 +171,15 @@ def main():
                                             + base0, encoding="utf-8", newline="\n")
     (OUT / "nagdeath_base1.lua").write_text(note + "-- The same cells moved to 1..100, no cellBase, no published.\n"
                                             + lua1, encoding="utf-8", newline="\n")
-    print("wrote %s and %s (%d rows, maps %s)" % (OUT / "nagdeath_base0.lua", OUT / "nagdeath_base1.lua", rows,
-                                                 ",".join(sorted(agg["maps"]))))
+    if lua_fine is None:
+        print("%s has no fine(): %s left as it is" % (sha[:12], OUT / "nagdeath_fine.lua"))
+    else:
+        (OUT / "nagdeath_fine.lua").write_text(note + "-- nagdeath_base0.lua's cells plus the server's own `fine` field (fine(), to_lua) and\n"
+                                               "-- fineExpect: the (x, y, level) cells its _pack was given, to check the decoder.\n"
+                                               + lua_fine, encoding="utf-8", newline="\n")
+    print("wrote %s and %s%s (%d rows, maps %s)" % (OUT / "nagdeath_base0.lua", OUT / "nagdeath_base1.lua",
+                                                   "" if lua_fine is None else " and " + str(OUT / "nagdeath_fine.lua"),
+                                                   rows, ",".join(sorted(agg["maps"]))))
 
 
 if __name__ == "__main__":

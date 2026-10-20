@@ -27,8 +27,14 @@ end
 S.new = new
 
 -- Regions (every kind).
-function REGION:SetPoint(...) self._point = { ... }; S.setPoints = S.setPoints + 1 end
-function REGION:ClearAllPoints() self._point = nil end
+-- _point is the last SetPoint; _points holds every anchor set since the last ClearAllPoints, by its point.
+function REGION:SetPoint(...)
+    self._point = { ... }
+    self._points = self._points or {}
+    self._points[(...)] = self._point
+    S.setPoints = S.setPoints + 1
+end
+function REGION:ClearAllPoints() self._point, self._points = nil, nil end
 function REGION:SetAllPoints(rel) self._point = { "ALL", rel } end
 function REGION:SetSize(w, h) self._w, self._h = w, h end
 function REGION:SetWidth(w) self._w = w end
@@ -93,6 +99,8 @@ function TEXTURE:SetTexture(path) self._texture = path end
 function TEXTURE:SetColorTexture(r, g, b, a) self._color = { r, g, b, a } end
 function TEXTURE:SetVertexColor(r, g, b, a) self._vertex = { r, g, b, a } end
 function TEXTURE:AddMaskTexture(m) self._masks = (self._masks or 0) + 1; self._mask = m end
+function TEXTURE:SetSnapToPixelGrid(v) self._snap = v end
+function TEXTURE:SetTexelSnappingBias(v) self._texelBias = v end
 function MASK:SetTexture(path) self._texture = path end
 
 -- Font strings.
@@ -137,14 +145,14 @@ function S.reset(opts)
         _G.Menu, _G.MenuUtil = nil, nil
     end
 
-    _G.NAGDeathData, _G.NAGDeathRadarSettings = nil, nil
+    _G.NAGDeathData, _G.NAGDeathRadarSettings, _G.NAGDeathRadarMapLayer = nil, nil, nil
     _G.UIParent = new(FRAME)
     _G.GameTooltip = new(TOOLTIP)
     _G.GameTooltip._shown, _G.GameTooltip._lines = false, {}
     _G.SlashCmdList = {}
     _G.print = function(...) table.insert(S.prints, table.concat({ ... }, " ")) end
     _G.date = os.date
-    _G.CreateFrame = function(kind, _, parent, template)
+    _G.CreateFrame = function(kind, name, parent, template)
         if kind == "Slider" then
             if template ~= "UISliderTemplateWithLabels" or not S.sliderTemplate then
                 error("CreateFrame: Couldn't find inherited node \"" .. tostring(template) .. "\"")
@@ -155,7 +163,8 @@ function S.reset(opts)
             return sl
         end
         local o = new(kind == "CheckButton" and CHECK or kind == "Button" and BUTTON or FRAME, parent)
-        o._template = template
+        o._template, o._name = template, name
+        if name then _G[name] = o end -- as the client does: a named frame is a global
         return o
     end
     _G.hooksecurefunc = function(t, name, f)

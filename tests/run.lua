@@ -257,22 +257,172 @@ test("nearest hot cell: distance and vector in yards, heading on the radar", fun
     eq(R.NearestHot({}, 0.5, 0.5, 1000, 1000), nil, "no hot cell")
 end)
 
-test("rebucket, zoom and the texture cap", function()
+--- A lone cell's inner fine value: bilinear 0.75 x 0.75 of q, or q itself where q is hot (25 at the default) and
+--- the smoothed value is not.
+local function loneInner(q)
+    local v = 0.5625 * q
+    return (q >= 25 and v < 25) and q or v
+end
+
+
+--- The map's red family (ns.MapColor from hot): orange-red to deep red, no blue. The ramp under hot never is.
+local function redFamily(r, g, b) return r ~= nil and r >= 0.8 and g <= 0.2 and b == 0 end
+local function isMapRed(c) return c ~= nil and redFamily(c[1], c[2], c[3]) end
+
+test("rebucket from any grid, same-colour runs per row and the texture cap", function()
     local ns = boot(false)
     local md = { [0] = { [0] = 10 }, [3] = { [3] = 50 }, [4] = { [4] = 30 }, [99] = { [99] = 7 } }
     local b25, n25 = ns.Rebucket(md, 25)
     eq(b25[1][1], 50, "0..3 merge, max kept"); eq(b25[2][2], 30, "4 -> bucket 2"); eq(b25[25][25], 7, "edge")
     eq(n25, 3, "count")
-    local b100, n100 = ns.Rebucket(md, 100)
-    eq(b100[1][1], 10); eq(b100[100][100], 7); eq(n100, 4)
-    eq(ns.BucketsForZoom(0), 25); eq(ns.BucketsForZoom(0.5), 50); eq(ns.BucketsForZoom(1), 100)
-    eq(ns.BucketsForZoom(nil), 25, "no zoom API")
+    local f = { [0] = { [0] = 10 }, [1] = { [1] = 40 }, [199] = { [199] = 7 } }
+    local b100, n100 = ns.Rebucket(f, 100, 200)
+    eq(b100[1][1], 40, "a 200 grid's 2 x 2 fold into one 100 bucket, max kept"); eq(b100[100][100], 7); eq(n100, 2)
+    eq(ns.BucketsForZoom, nil, "no zoom ladder: every zoom draws the full grid")
+    local s = ns.InitSettings(nil)
+    local function sorted(runs)
+        table.sort(runs, function(a, b) return a.y < b.y or (a.y == b.y and a.x0 < b.x0) end)
+        return runs
+    end
+    local runs = sorted(ns.Runs({ [1] = { [1] = 50 }, [2] = { [1] = 50 }, [3] = { [1] = 50 }, [5] = { [1] = 50 },
+        [6] = { [1] = 10 }, [7] = { [2] = 50 } }, 200, s))
+    eq(#runs, 4, "1..3 one run; 5 after a gap; 6 another colour; row 2 its own")
+    eq(runs[1].x0, 1); eq(runs[1].x1, 3); eq(runs[2].x0, 5); eq(runs[2].x1, 5); eq(runs[3].x0, 6); eq(runs[4].y, 2)
+    assert(redFamily(runs[1].r, runs[1].g, runs[1].b), "q 50 red"); eq(runs[1].a, select(4, ns.MapColor(0.5, s)), "the ramp's alpha")
+    eq(#ns.Runs({ [1] = { [1] = 50 }, [2] = { [1] = 51 } }, 200, s), 1, "q 50 and 51: one red step, one run")
+    eq(#ns.Runs({ [1] = { [1] = 50 }, [2] = { [1] = 60 } }, 200, s), 2, "q 50 and 60: two red steps, two runs")
+    eq(#ns.Runs({ [1] = { [1] = 1 } }, 200, s), 0, "below the low band: no run")
+    -- A checkerboard of red and yellow never merges at 200; folded to 100 every bucket keeps its red.
     local dense = {}
-    for x = 0, 99 do dense[x] = {}; for y = 0, 99 do dense[x][y] = 50 end end
-    local _, n, count = ns.CappedBuckets(dense, 100, 2500)
-    eq(n, 50, "10000 cells over the cap: 50 per side"); eq(count, 2500)
-    _, n, count = ns.CappedBuckets(dense, 100, 100)
-    eq(n, 25, "never coarser than 25"); eq(count, 625)
+    for x = 0, 199 do dense[x] = {}; for y = 0, 199 do dense[x][y] = (x + y) % 2 == 0 and 50 or 10 end end
+    local capped, n = ns.CappedRuns(dense, 200, 200, 2500, s)
+    eq(n, 100, "40000 runs over the cap: 100 per side"); eq(#capped, 100, "one red run per row")
+    local _, nMin = ns.CappedRuns(dense, 200, 200, 10, s)
+    eq(nMin, 25, "never coarser than 25")
+end)
+
+test("upsample: bilinear 100 -> 200, edges clamped, a fine cell never under its parent's band", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    local up = ns.Upsample({ [10] = { [10] = 100 } }, s)
+    local n = 0
+    for _, col in pairs(up) do for _ in pairs(col) do n = n + 1 end end
+    eq(n, 16, "a lone cell spreads over 4 x 4 fine cells")
+    near(up[20][20], 56.25, "inner"); near(up[21][21], 56.25, "inner")
+    near(up[19][20], 18.75, "edge"); near(up[22][21], 18.75, "edge")
+    near(up[19][19], 6.25, "corner"); near(up[22][22], 6.25, "corner")
+    eq(up[18], nil, "nothing past the bilinear support")
+    up = ns.Upsample({ [10] = { [10] = 30 } }, s) -- bilinear 16.875 would be yellow; the radar calls 30 hot
+    near(up[20][20], 30, "raised to its own cell's q: red where the radar points")
+    near(up[19][20], 5.625, "a cell of an empty parent is not raised")
+    up = ns.Upsample({ [10] = { [10] = 12 } }, s)
+    near(up[20][20], 6.75, "a parent that is not hot: smoothed, not lifted (the ramp has no band to keep)")
+    up = ns.Upsample({ [10] = { [10] = 1 } }, s)
+    near(up[20][20], 0.5625, "below the low band: not raised")
+    up = ns.Upsample({ [0] = { [0] = 40 } }, s)
+    near(up[0][0], 40, "the corner fine cell reads its own cell only")
+    near(up[1][1], 40, "0.5625 x 40 = 22.5 is yellow: its own cell's q")
+    up = ns.Upsample({ [99] = { [99] = 40 } }, s)
+    near(up[199][199], 40, "the far corner"); eq(up[200], nil, "nothing past the grid")
+    s.hot = 0.4
+    up = ns.Upsample({ [10] = { [10] = 30 } }, s)
+    near(up[20][20], 16.875, "hot from 0.4: 30 is yellow, and so is 16.875: not raised")
+end)
+
+test("upsample: at every threshold the addon takes, a lone hot cell's own fine cells draw red", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    local bad = {}
+    for h = 50, 1000 do -- every three-decimal /ndr threshold, 0.050 .. 1.000
+        s.hot = h / 1000
+        local q = math.ceil(s.hot * 100 - 1e-9) -- the coolest whole q the radar calls hot
+        if q / 100 < s.hot then q = q + 1 end
+        if q <= 100 then
+            local up = ns.Upsample({ [10] = { [10] = q } }, s)
+            for jx = 20, 21 do
+                for jy = 20, 21 do
+                    local r, g, b = ns.MapColor(up[jx][jy] / 100, s)
+                    if not redFamily(r, g, b) then bad[#bad + 1] = ("%s q %d"):format(s.hot, q) end
+                end
+            end
+        end
+    end
+    eq(#bad, 0, "thresholds whose hot cell draws another colour: " .. table.concat(bad, ", ", 1, math.min(#bad, 8)))
+    s = ns.InitSettings(nil)
+    s.thrLow = 0.167 -- the low band is not lifted: a lone q-17 cell smooths to 9.6 and fades out of the haze
+    local up = ns.Upsample({ [10] = { [10] = 17 } }, s)
+    near(up[20][20], 0.5625 * 17, "smoothed, not lifted"); eq(ns.MapColor(up[20][20] / 100, s), nil, "under the low band: not drawn")
+end)
+
+
+--- One run in the server's packed grammar (Tools PR #1142 _pack): Y(2) X(2) N(1) and N levels, base64 digits.
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local function digit(v) return B64:sub(v + 1, v + 1) end
+local function run(y, x, levels)
+    local s = digit(math.floor(y / 64)) .. digit(y % 64) .. digit(math.floor(x / 64)) .. digit(x % 64) .. digit(#levels)
+    for _, l in ipairs(levels) do s = s .. digit(l) end
+    return s
+end
+
+test("fine: the server's packed field decodes to the cells its encoder was given; a bad one is ignored", function()
+    local ns = boot(false)
+    local raw = readFixture("nagdeath_fine.lua")
+    local d = assert(ns.LoadData(raw))
+    assert(d.fine, "fine read: " .. tostring(d.fineReason))
+    eq(d.fine.grid, 200); eq(d.fine.maps, 2)
+    for m, cells in pairs(raw.fineExpect) do
+        local got = 0
+        for _, col in pairs(d.fine.map[m]) do for _ in pairs(col) do got = got + 1 end end
+        eq(got, #cells, "map " .. m .. ": every cell, no other")
+        for _, c in ipairs(cells) do
+            near(d.fine.map[m][c[1]][c[2]], 100 * c[3] / 63, ("map %d cell %d,%d"):format(m, c[1], c[2]))
+        end
+    end
+    local plain = assert(ns.LoadData(readFixture("nagdeath_base0.lua")))
+    eq(d.cells, plain.cells, "the 100 grid is read as without fine")
+    local function fineOf(f)
+        local r = readFixture("nagdeath_base0.lua")
+        r.fine = f
+        local dd, why = ns.LoadData(r)
+        assert(dd, "fine never makes the data unusable: " .. tostring(why))
+        return dd.fine, dd.fineReason
+    end
+    local one = { run(0, 0, { 1 }) }
+    eq(select(2, fineOf(nil)), "absent")
+    eq(select(2, fineOf("x")), "format")
+    for _, g in ipairs({ 100, 199, 250, 401, 200.5, "200" }) do eq(select(2, fineOf({ grid = g, [1] = one })), "grid", tostring(g)) end
+    near(fineOf({ grid = 300, [1] = { run(299, 299, { 63 }) } }).map[1][299][299], 100, "a 300 grid reads; the map folds it to 200")
+    eq(select(2, fineOf({ grid = 200, cellBase = 2, [1] = one })), "cellBase")
+    for _, l in ipairs({ 1, 65, 2.5 }) do eq(select(2, fineOf({ grid = 200, levels = l, [1] = one })), "levels", tostring(l)) end
+    eq(select(2, fineOf({ grid = 200, [1] = { "!" } })), "empty", "no valid map")
+    local f = fineOf({ grid = 200, [1] = { run(5, 7, { 63, 0, 0, 31 }) .. run(6, 0, { 2 }), run(199, 190, { 1 }) } })
+    near(f.map[1][7][5], 100, "x 7 row 5, level 63 of 64 is 100"); eq(f.map[1][8], nil, "a level 0 bridges: no cell")
+    near(f.map[1][10][5], 100 * 31 / 63, "x 7 + 3"); near(f.map[1][0][6], 100 * 2 / 63, "a second run in one string")
+    near(f.map[1][190][199], 100 / 63, "a second string, the last row")
+    local cases = {
+        { { run(0, 0, { 1 }) .. "!" }, "a bad character" },
+        { { run(0, 0, { 1 }):sub(1, 4) }, "a header cut short" },
+        { { run(0, 0, { 1 }):sub(1, 5) }, "a run with fewer levels than N" },
+        { { run(0, 0, {}) }, "N 0" },
+        { { run(0, 198, { 1, 1, 1 }) }, "a run past the last column" },
+        { { run(200, 0, { 1 }) }, "a row past the grid" },
+        { { run(0, 0, { 0 }) }, "only empty cells" },
+        { { run(0, 0, { 1 }), 7 }, "a string list holding a number" },
+        { {}, "an empty list" },
+        { run(0, 0, { 1 }), "a bare string, not a list" },
+    }
+    for i, c in ipairs(cases) do
+        f = fineOf({ grid = 200, [1] = c[1], [2] = one })
+        eq(f.map[1], nil, c[2] .. ": its map is dropped"); assert(f.map[2], c[2] .. ": the other map stays")
+    end
+    f = fineOf({ grid = 200, levels = 4, [1] = { run(1, 1, { 3 }) }, [2] = { run(1, 1, { 4 }) } })
+    near(f.map[1][1][1], 100, "level 3 of 4 is 100"); eq(f.map[2], nil, "a level past levels - 1")
+    f = fineOf({ grid = 200, cellBase = 1, [1] = { run(1, 200, { 63 }) }, [2] = { run(0, 1, { 63 }) } })
+    assert(f.map[1][199][0], "1-based: x 200, y 1 is the last column's first row"); eq(f.map[2], nil, "1-based: y 0 is off")
+    f = fineOf({ grid = 200, [1] = one, ["x"] = one, [0] = one, [-3] = one, [2.5] = one })
+    eq(f.maps, 1, "only positive integer map keys")
+    local r = readFixture("nagdeath_fine.lua"); r.map = nil
+    eq(select(2, ns.LoadData(r)), "map", "fine alone is not data: the 100 grid stays required")
 end)
 
 test("colours: thresholds to light blue, yellow, red", function()
@@ -282,6 +432,103 @@ test("colours: thresholds to light blue, yellow, red", function()
     local r, g, b = ns.Color(0.05, s); eq(r, 0); eq(g, 0.8); eq(b, 1)
     r, g, b = ns.Color(0.1, s); eq(r, 1); eq(g, 1); eq(b, 0)
     r, g, b = ns.Color(0.25, s); eq(r, 1); eq(g, 0); eq(b, 0)
+end)
+
+test("map colours: a ramp from a faint blue haze to orange-red under hot, red from hot, nothing under the low band", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    eq(ns.MapColor(0.019, s), nil, "under the low band: nothing")
+    local shades, lastA, lastStep = {}, 0, -1
+    for k = 20, 249 do
+        local i = k / 1000
+        local r, g, b, a, step = ns.MapColor(i, s)
+        assert(r, "drawn at " .. i)
+        assert(not redFamily(r, g, b), "not red under hot: " .. i)
+        assert(a >= lastA, ("alpha never falls: %s at %s after %s"):format(a, i, lastA)); lastA = a
+        assert(step >= lastStep, "steps rise with i"); lastStep = step
+        shades[step] = shades[step] or { r, g, b, a }
+        local c = shades[step]
+        eq(c[1] .. c[2] .. c[3] .. c[4], r .. g .. b .. a, "one step, one colour")
+    end
+    local n = 0
+    for _ in pairs(shades) do n = n + 1 end
+    eq(n, ns.MAP_RAMP_STEPS, "every shade of the ramp under hot")
+    assert(ns.MAP_RAMP_STEPS >= 16, "enough shades to read smooth")
+    local r, g, b, a = ns.MapColor(0.02, s)
+    assert(b > r and a >= 0.15 and a <= 0.22, ("the faintest cell: light blue, faint but seen: %s %s %s %s"):format(r, g, b, a))
+    r, g, b, a = ns.MapColor(0.10, s)
+    assert(r > 0.9 and g > 0.7 and g < 0.9 and b < 0.2, ("gold where the radar turns yellow: %s %s %s"):format(r, g, b))
+    assert(a >= 0.3 and a <= 0.37, "gold at about a third: it reads on yellow-brown ground, alpha " .. a)
+    r, g, b = ns.MapColor(0.249, s)
+    assert(r == 1 and g > 0.35 and g < 0.55, ("orange just under hot: %s %s %s"):format(r, g, b))
+    local redA, redR, redG = 0, 1, 1
+    for k = 250, 1000, 5 do
+        local rr, gg, bb, aa = ns.MapColor(k / 1000, s)
+        assert(redFamily(rr, gg, bb), "red from hot: " .. k / 1000)
+        assert(aa >= 0.5 and aa >= redA, "red at least at its floor, never fading as i grows"); redA = aa
+        assert(rr <= redR and gg <= redG, "red deepens as i grows"); redR, redG = rr, gg
+    end
+    r, g = ns.MapColor(0.25, s)
+    assert(g >= 0.15, "orange-red at hot")
+    r, g, b, a = ns.MapColor(1, s)
+    assert(r <= 0.85 and g <= 0.02 and a >= 0.7, ("deep red at q 100: %s %s %s %s"):format(r, g, b, a))
+    s.mapAlpha = 0.5
+    local _, _, _, half = ns.MapColor(0.5, s)
+    s.mapAlpha = 1
+    local _, _, _, full = ns.MapColor(0.5, s)
+    near(half, full * 0.5, "the opacity setting scales it")
+    for _, order in ipairs({ { 0.3, 0.2, 0.25 }, { 0.02, 0.5, 0.25 }, { 0.3, 0.3, 0.25 } }) do
+        s.thrLow, s.thrMid, s.hot = order[1], order[2], order[3]
+        for k = 0, 1000, 7 do
+            local rr, gg, bb = ns.MapColor(k / 1000, s)
+            local wantRed = k / 1000 >= s.hot
+            if rr then eq(redFamily(rr, gg, bb), wantRed, ("order %s/%s/%s at %s"):format(order[1], order[2], order[3], k / 1000))
+            else assert(not wantRed, "a hot cell is drawn") end
+        end
+    end
+end)
+
+test("map colours: a cell exactly at hot draws the red family (red team LOW-1, relay 3839)", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    for _, h in ipairs({ 0.05, 0.1, 0.167, 0.25, 0.3, 0.333, 0.7, 1 }) do
+        s.hot = h
+        local r, g, b, a, step = ns.MapColor(h, s)
+        assert(redFamily(r, g, b), ("i == hot %s: red family, got %s %s %s"):format(h, tostring(r), tostring(g), tostring(b)))
+        assert(step >= 1000 and a >= 0.5, "i == hot " .. h .. ": red's first step")
+    end
+end)
+
+test("map colours: a red cell beside a ramp cell of the same step index stays its own run (red team LOW-2)", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    local _, _, _, _, rampStep = ns.MapColor(0.02, s)
+    local _, _, _, _, redStep = ns.MapColor(0.25, s)
+    eq(rampStep, 0, "the ramp's first step"); eq(redStep % 1000, 0, "red's first step has the same index")
+    local runs = ns.Runs({ [1] = { [1] = 2 }, [2] = { [1] = 25 } }, 200, s)
+    eq(#runs, 2, "two runs, not one")
+    table.sort(runs, function(x, y) return x.x0 < y.x0 end)
+    local want1 = { ns.MapColor(0.02, s) }
+    local want2 = { ns.MapColor(0.25, s) }
+    eq(runs[1].r .. runs[1].g .. runs[1].b .. runs[1].a, want1[1] .. want1[2] .. want1[3] .. want1[4], "the ramp cell's own colour")
+    eq(runs[2].r .. runs[2].g .. runs[2].b .. runs[2].a, want2[1] .. want2[2] .. want2[3] .. want2[4], "the red cell's own colour")
+    assert(redFamily(runs[2].r, runs[2].g, runs[2].b), "and it is red")
+end)
+
+test("map colours: thrMid outside thrLow..hot, the ramp runs straight from blue to orange over thrLow..hot", function()
+    local ns = boot(false)
+    local s = ns.InitSettings(nil)
+    for _, mid in ipairs({ 0.01, 0.05, 0.25, 0.6 }) do -- under thrLow, at it, at hot, above hot
+        s.thrLow, s.thrMid, s.hot = 0.05, mid, 0.25
+        for _, i in ipairs({ 0.05, 0.08, 0.1, 0.15, 0.2, 0.249 }) do
+            local _, _, _, _, step = ns.MapColor(i, s)
+            eq(step, math.min(23, math.floor((i - 0.05) / 0.2 * 24)), ("thrMid %s, i %s: the straight step"):format(mid, i))
+        end
+        local r, g, b = ns.MapColor(0.05, s)
+        assert(b > r, "blue at thrLow")
+        r, g, b = ns.MapColor(0.249, s)
+        assert(r == 1 and g > 0.35 and g < 0.55, "orange just under hot")
+    end
 end)
 
 test("slash parser", function()
@@ -333,18 +580,61 @@ end)
 
 -- ============================ the heatmap ============================
 
-test("overlay: draws on map change, coarser zoomed out, no data for this map, off", function()
+--- The shown overlay texture over canvas point (px, py) (y down from the top), from its TOPLEFT and BOTTOMRIGHT.
+local function textureAt(px, py)
+    for _, o in ipairs(S.objects) do
+        local tl, br = o._points and o._points.TOPLEFT, o._points and o._points.BOTTOMRIGHT
+        if o._color and o._shown and tl and br and tl[4] <= px and px < br[4] and -tl[5] <= py and py < -br[5] then
+            return o
+        end
+    end
+end
+
+--- The texture over 0-based cell (jx, jy) of n per side (200 by default) on the stub's 1000 x 700 canvas.
+local function cellTex(jx, jy, n)
+    n = n or 200
+    return textureAt((jx + 0.5) * 1000 / n, (jy + 0.5) * 700 / n)
+end
+
+local function shownTextures()
+    local list = {}
+    for _, o in ipairs(S.objects) do
+        if o._color and o._shown and o._points and o._points.TOPLEFT then list[#list + 1] = o end
+    end
+    return list
+end
+
+test("overlay: draws 200 per side on map change, the same at every zoom, no data for this map, off", function()
     local ns = boot("nagdeath_base0.lua")
     eq(ns.OverlayLevel(), 2004, "just above the explored-area level, below every pin")
+    eq(_G.NAGDeathRadarMapLayer and _G.NAGDeathRadarMapLayer:GetFrameLevel(), 2004, "the layer is named, for probes")
     S.mapID, S.zoom = ELWYNN, 1
     WorldMapFrame:OnMapChanged()
-    local cells = 0
-    for _, col in pairs(ns.data.map[ELWYNN]) do for _ in pairs(col) do cells = cells + 1 end end
-    eq(ns.OverlayCount(), cells, "every Elwynn cell at full zoom")
+    local drawn = ns.OverlayCount()
+    assert(drawn > 0, "drawn")
+    eq(#shownTextures(), drawn, "every texture anchored at two corners")
+    local s = NAGDeathRadarSettings
+    for ix, col in pairs(ns.data.map[ELWYNN]) do
+        for iy, q in pairs(col) do
+            if ns.MapColor(q / 100, s) then
+                for jx = 2 * ix, 2 * ix + 1 do
+                    for jy = 2 * iy, 2 * iy + 1 do assert(cellTex(jx, jy), ("cell %d,%d's fine %d,%d"):format(ix, iy, jx, jy)) end
+                end
+            end
+        end
+    end
+    for _, o in ipairs(shownTextures()) do
+        local tl, br = o._points.TOPLEFT, o._points.BOTTOMRIGHT
+        near(-br[5] - -tl[5], 3.5, "one fine row high", 1e-9)
+        local w = br[4] - tl[4]
+        near(w / 5, math.floor(w / 5 + 0.5), "a whole number of fine cells wide", 1e-9)
+    end
     eq(ns.OverlayNote(), nil, "no note over data")
-    S.zoom = 0
-    WorldMapFrame:OnCanvasScaleChanged()
-    assert(ns.OverlayCount() > 0 and ns.OverlayCount() < cells, "rebucketed " .. ns.OverlayCount())
+    for _, z in ipairs({ 0, 0.5 }) do
+        S.zoom = z
+        WorldMapFrame:OnCanvasScaleChanged()
+        eq(ns.OverlayCount(), drawn, "zoom " .. z .. ": the same picture")
+    end
     S.mapID = NO_DATA_MAP
     WorldMapFrame:OnMapChanged()
     eq(ns.OverlayCount(), 0, "nothing drawn"); eq(ns.OverlayNote(), "NAG Death Radar: no data for this map")
@@ -352,34 +642,102 @@ test("overlay: draws on map change, coarser zoomed out, no data for this map, of
     SlashCmdList.NAGDEATHRADAR("map off")
     eq(ns.OverlayCount(), 0, "overlay off"); eq(ns.OverlayNote(), nil, "and quiet")
     SlashCmdList.NAGDEATHRADAR("map on")
-    assert(ns.OverlayCount() > 0, "back")
+    eq(ns.OverlayCount(), drawn, "back")
 end)
 
-test("overlay: a map that cannot zoom is drawn at full detail; a zoomable one by its zoom", function()
+test("overlay: a map that cannot zoom and a zoomable one, zoomed out, draw the same full picture", function()
     local ns = boot("nagdeath_base0.lua")
-    local cells = 0
-    for _, col in pairs(ns.data.map[ELWYNN]) do for _ in pairs(col) do cells = cells + 1 end end
     S.mapID, S.zoom, S.minScale, S.maxScale = ELWYNN, 0.5, 1, 1 -- one zoom scale: the client answers 0 %
     WorldMapFrame:OnMapChanged()
-    eq(ns.OverlayCount(), cells, "single scale: every cell")
+    local full = ns.OverlayCount()
+    assert(full > 0)
     S.minScale, S.maxScale, S.zoom = 0.5, 2, 0
-    WorldMapFrame:OnCanvasScaleChanged()
-    assert(ns.OverlayCount() < cells, "zoomable and zoomed out: coarser, got " .. ns.OverlayCount())
-    S.zoom = 1
-    WorldMapFrame:OnCanvasScaleChanged()
-    eq(ns.OverlayCount(), cells, "zoomable and zoomed in: every cell")
+    WorldMapFrame:OnMapChanged()
+    S.mapID = DUROTAR; WorldMapFrame:OnMapChanged(); S.mapID = ELWYNN; WorldMapFrame:OnMapChanged()
+    eq(ns.OverlayCount(), full, "zoomable and zoomed out: every fine cell")
+end)
+
+test("overlay: seams: touching runs share their edge exactly, snapping off, on an odd canvas size", function()
+    local ns = boot("nagdeath_base0.lua")
+    S.canvas._w, S.canvas._h = 1002.7, 668.1
+    S.mapID = ELWYNN
+    _G.NAGDeathRadarMapLayer._scripts.OnSizeChanged(_G.NAGDeathRadarMapLayer)
+    local list = shownTextures()
+    assert(#list > 0)
+    local touchX, touchY = 0, 0
+    for _, a in ipairs(list) do
+        eq(a._snap, false, "SetSnapToPixelGrid(false)"); eq(a._texelBias, 0, "SetTexelSnappingBias(0)")
+        local abr = a._points.BOTTOMRIGHT
+        for _, b in ipairs(list) do
+            local btl = b._points.TOPLEFT
+            if a ~= b and math.abs(abr[4] - btl[4]) < 1e-6 and btl[5] == a._points.TOPLEFT[5] then
+                touchX = touchX + 1
+                eq(abr[4], btl[4], "a row's touching runs: one edge, bit for bit")
+            end
+            if a ~= b and math.abs(abr[5] - btl[5]) < 1e-6 then
+                touchY = touchY + 1
+                eq(abr[5], btl[5], "touching rows: one edge, bit for bit")
+            end
+        end
+    end
+    assert(touchX > 0 and touchY > 0, ("touching pairs found: %d across, %d down"):format(touchX, touchY))
+    for _, o in ipairs(list) do
+        local tl, br = o._points.TOPLEFT, o._points.BOTTOMRIGHT
+        local x0, x1 = tl[4] / (1002.7 / 200), br[4] / (1002.7 / 200)
+        near(x0, math.floor(x0 + 0.5), "left edge on the grid", 1e-6); near(x1, math.floor(x1 + 0.5), "right edge on the grid", 1e-6)
+    end
 end)
 
 test("overlay: the corner cell of a 0-based file is drawn in the top-right corner", function()
     local ns = boot("nagdeath_base0.lua")
     S.mapID, S.zoom = ELWYNN, 1
     WorldMapFrame:OnMapChanged()
-    local found
-    for _, o in ipairs(S.objects) do
-        local p = o._point
-        if o._color and o._shown and p and p[1] == "TOPLEFT" and p[4] == 99 * 10 and p[5] == 0 then found = true end
+    local t = assert(cellTex(199, 0), "the top-right fine cell is drawn")
+    eq(t._points.BOTTOMRIGHT[4], 1000, "at the right edge"); eq(t._points.TOPLEFT[5], 0, "at the top edge")
+end)
+
+test("overlay: with `fine`, the map draws the file's own 200 cells, not the upsampled 100 grid", function()
+    local raw = readFixture("nagdeath_fine.lua")
+    local ns = boot("nagdeath_fine.lua")
+    local s = NAGDeathRadarSettings
+    for _, m in ipairs({ ELWYNN, DUROTAR }) do
+        S.mapID = m
+        WorldMapFrame:OnMapChanged()
+        local inFine = {}
+        for _, c in ipairs(raw.fineExpect[m]) do
+            inFine[c[1] * 1000 + c[2]] = true
+            local r, g, b, a = ns.MapColor(c[3] / 63, s)
+            local tex = cellTex(c[1], c[2])
+            if r then
+                assert(tex, ("map %d fine %d,%d drawn"):format(m, c[1], c[2]))
+                eq(tex._color[1], r); eq(tex._color[2], g); eq(tex._color[3], b)
+                eq(tex._color[4], a, "alpha")
+            else
+                eq(tex, nil, ("map %d fine %d,%d under the low band"):format(m, c[1], c[2]))
+            end
+        end
+        -- A cell the encoder left empty that the upsampled 100 grid would colour: not drawn.
+        local up, shown = ns.Upsample(ns.data.map[m], s), 0
+        for jx, col in pairs(up) do
+            for jy, q in pairs(col) do
+                if not inFine[jx * 1000 + jy] and ns.MapColor(q / 100, s) then
+                    shown = shown + 1
+                    eq(cellTex(jx, jy), nil, ("map %d fine %d,%d: from fine, not the upsample"):format(m, jx, jy))
+                end
+            end
+        end
+        assert(shown > 0, "map " .. m .. ": the upsample would colour a cell fine leaves empty")
     end
-    assert(found, "a texture at x = 99 cells, y = 0")
+    raw.fine[ELWYNN] = "50,74,!"
+    ns = boot(raw)
+    S.mapID = ELWYNN
+    WorldMapFrame:OnMapChanged()
+    local up = ns.Upsample(ns.data.map[ELWYNN], NAGDeathRadarSettings)
+    for jx, col in pairs(up) do
+        for jy, q in pairs(col) do
+            if ns.MapColor(q / 100, NAGDeathRadarSettings) then assert(cellTex(jx, jy), "a bad fine map falls back to the upsample") end
+        end
+    end
 end)
 
 test("overlay: a client without the world map canvas draws nothing and nothing errors", function()
@@ -412,18 +770,6 @@ local function bootRadar(opts)
     return ns
 end
 
---- The overlay square at bucket (bx, by) of n per side on the stub's 1000 x 700 canvas, or nil.
-local function squareAt(bx, by, n)
-    local cw, ch = 1000 / n, 700 / n
-    for _, o in ipairs(S.objects) do
-        local p = o._point
-        if o._color and o._shown and p and p[1] == "TOPLEFT" and math.abs(p[4] - (bx - 1) * cw) < 1e-6
-            and math.abs(p[5] + (by - 1) * ch) < 1e-6 then
-            return o
-        end
-    end
-end
-
 local function isRed(c) return c and c[1] == 1 and c[2] == 0 and c[3] == 0 end
 local function isYellow(c) return c and c[1] == 1 and c[2] == 1 and c[3] == 0 end
 
@@ -449,20 +795,88 @@ test("overlay: a hot cell reads red on the map at every zoom, where the radar po
     local dn, dw = ns.Radar.CellVector(ns.CellCentre(52), ns.CellCentre(30), 45, 28, W_ELWYNN, H_ELWYNN)
     near(p.dx, dn, "north", 1e-6); near(p.dy, dw, "west", 1e-6)
     S.mapID = ELWYNN
-    for _, z in ipairs({ { 0, 25 }, { 0.5, 50 }, { 1, 100 } }) do
-        S.zoom = z[1]
+    WorldMapFrame:OnMapChanged()
+    for _, z in ipairs({ 0, 0.5, 1 }) do
+        S.zoom = z
         WorldMapFrame:OnCanvasScaleChanged()
-        local n = z[2]
-        local sq = squareAt(math.floor(45 * n / 100) + 1, math.floor(28 * n / 100) + 1, n)
-        assert(sq, n .. " per side: the hot square is drawn")
-        assert(isRed(sq._color), ("%d per side: the hot square is red, got %s %s %s"):format(n, sq._color[1], sq._color[2], sq._color[3]))
-        assert(sq._color[4] >= 0.4, n .. " per side: at least red's floor, alpha " .. sq._color[4])
-        local quiet = squareAt(math.floor(31 * n / 100) + 1, math.floor(16 * n / 100) + 1, n)
-        assert(quiet and not isRed(quiet._color), n .. " per side: a q-5 square is not red")
+        for jx = 90, 91 do
+            for jy = 56, 57 do
+                local sq = assert(cellTex(jx, jy), ("zoom %s: hot fine cell %d,%d drawn"):format(z, jx, jy))
+                assert(isMapRed(sq._color), ("zoom %s: fine %d,%d red, got %s %s %s"):format(z, jx, jy, sq._color[1], sq._color[2], sq._color[3]))
+                assert(sq._color[4] >= 0.5, "at least red's floor, alpha " .. sq._color[4])
+            end
+        end
+        local quiet = cellTex(62, 32)
+        assert(quiet and not isMapRed(quiet._color), "zoom " .. z .. ": a q-5 cell is not red")
     end
 end)
 
-test("overlay: the map's bands are the radar's, for q 1, 9, 10, 24, 25, 100", function()
+test("fine: the radar reads the fine cells folded to its grid, so its hot cells are red on the map", function()
+    local raw = readFixture("nagdeath_fine.lua")
+    local ns = boot("nagdeath_fine.lua")
+    local s = NAGDeathRadarSettings
+    for _, m in ipairs({ ELWYNN, DUROTAR }) do
+        local md = ns.MapData(m)
+        local fine = ns.data.fine.map[m]
+        local n, hot = 0, 0
+        for ix, col in pairs(md) do
+            for iy, q in pairs(col) do
+                n = n + 1
+                local best = 0
+                for jx = 2 * ix, 2 * ix + 1 do
+                    for jy = 2 * iy, 2 * iy + 1 do best = math.max(best, fine[jx] and fine[jx][jy] or 0) end
+                end
+                eq(q, best, ("map %d cell %d,%d: its hottest fine cell"):format(m, ix, iy))
+                if q / 100 >= s.hot then hot = hot + 1 end
+            end
+        end
+        assert(n > 0 and hot > 0, "map " .. m .. ": cells and hot cells to check")
+        assert(ns.data.map[m] ~= md, "not the 100 grid")
+        S.mapID = m
+        WorldMapFrame:OnMapChanged()
+        for ix, col in pairs(md) do
+            for iy, q in pairs(col) do
+                if q / 100 >= s.hot then
+                    local red = false
+                    for jx = 2 * ix, 2 * ix + 1 do
+                        for jy = 2 * iy, 2 * iy + 1 do
+                            local tex = cellTex(jx, jy)
+                            if tex and isMapRed(tex._color) then red = true end
+                        end
+                    end
+                    assert(red, ("map %d: the radar's hot cell %d,%d has a red fine cell on the map"):format(m, ix, iy))
+                end
+            end
+        end
+    end
+    eq(ns.MapData(NO_DATA_MAP), nil)
+    local plain = boot("nagdeath_base0.lua")
+    eq(plain.MapData(ELWYNN), plain.data.map[ELWYNN], "without fine, the radar reads map")
+end)
+
+test("overlay: a threshold changed past the 14th digit redraws the picture", function()
+    local ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = { [10] = { [10] = 25 } } } })
+    S.mapID = ELWYNN
+    WorldMapFrame:OnMapChanged()
+    assert(isMapRed(cellTex(20, 20)._color), "q 25 red at 0.25")
+    SlashCmdList.NAGDEATHRADAR("threshold 0.250000000000001")
+    local want = { ns.Color(0.25, NAGDeathRadarSettings) }
+    eq(want[2], 1, "ns.Color (the radar) calls 0.25 yellow now")
+    local tex = cellTex(20, 20)
+    assert(tex and not isMapRed(tex._color), "the map follows: not red, not the cached red")
+    -- The other way: drawn first at 0.250000000000001, the upsample does not lift q 25 (yellow there); at 0.25 the
+    -- upsample must be built again, lifted, red.
+    ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = { [10] = { [10] = 25 } } } }, { saved = { hot = 0.250000000000001 } })
+    S.mapID = ELWYNN
+    WorldMapFrame:OnMapChanged()
+    tex = cellTex(20, 20)
+    assert(tex and not isMapRed(tex._color), "q 25 not red at 0.250000000000001")
+    SlashCmdList.NAGDEATHRADAR("threshold 0.25")
+    tex = cellTex(20, 20)
+    assert(tex and isMapRed(tex._color), "at 0.25: red, not the cached unlifted grid")
+end)
+
+test("overlay: red on the map exactly where the radar calls a lone cell hot, for q 1, 9, 10, 24, 25, 100", function()
     local md = { [10] = { [10] = 1 }, [20] = { [20] = 9 }, [30] = { [30] = 10 }, [40] = { [40] = 24 },
         [50] = { [50] = 25 }, [60] = { [60] = 100 } }
     local ns = boot({ v = 1, cellBase = 0, map = { [ELWYNN] = md } })
@@ -471,13 +885,14 @@ test("overlay: the map's bands are the radar's, for q 1, 9, 10, 24, 25, 100", fu
     local s = NAGDeathRadarSettings
     for ix, col in pairs(md) do
         for iy, q in pairs(col) do
-            local want = { ns.Color(q / 100, s) }
-            local sq = squareAt(ix + 1, iy + 1, 100)
+            local sq = cellTex(2 * ix, 2 * iy)
+            local want = { ns.MapColor(loneInner(q) / 100, s) }
             if not want[1] then
-                eq(sq, nil, "q " .. q .. ": below the low band, not drawn (as on the radar)")
+                eq(sq, nil, "q " .. q .. ": smoothed under the low band, not drawn")
             else
                 assert(sq, "q " .. q .. " drawn")
-                for k = 1, 3 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
+                for k = 1, 4 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
+                eq(isMapRed(sq._color), q >= 25, "q " .. q .. ": red exactly when the radar calls it hot")
             end
         end
     end
@@ -489,9 +904,9 @@ test("overlay and radar: a changed hot threshold moves both", function()
     standAt(ELWYNN, 45, 28, 0)
     S.mapID, S.zoom = ELWYNN, 1
     WorldMapFrame:OnMapChanged()
-    assert(isRed(squareAt(46, 29, 100)._color), "map: red at 0.25")
+    assert(isMapRed(cellTex(90, 56)._color), "map: red at 0.25")
     SlashCmdList.NAGDEATHRADAR("threshold 0.4")
-    assert(isYellow(squareAt(46, 29, 100)._color), "map: yellow at 0.4")
+    assert(not isMapRed(cellTex(90, 56)._color), "map: no longer red at 0.4")
     ns.Radar.Paint()
     local blip
     for i = 1, ns.Radar.BlipCount() do
@@ -502,19 +917,12 @@ test("overlay and radar: a changed hot threshold moves both", function()
     assert(isYellow(blip.tex._vertex), "radar: yellow at 0.4")
     eq(ns.Radar.Pointer().tex:IsShown(), false, "radar: no hot cell left")
     SlashCmdList.NAGDEATHRADAR("threshold 0.25")
-    assert(isRed(squareAt(46, 29, 100)._color), "map: red again")
+    assert(isMapRed(cellTex(90, 56)._color), "map: red again")
     ns.Radar.Paint()
     assert(isRed(blip.tex._vertex), "radar: red again")
 end)
 
--- The old ramp's weight (0.25 + 0.45 q/100), red never under 0.4, times the opacity setting.
-local function mapWeight(q, red, mapAlpha)
-    local a = 0.25 + 0.45 * math.min(q, 100) / 100
-    if red and a < 0.4 then a = 0.4 end
-    return a * (mapAlpha or 1)
-end
-
-test("overlay: at the default each band weighs what the old ramp did; red never under its floor", function()
+test("overlay: each lone cell draws its ramp colour; red never under its floor", function()
     local md = {}
     local qs = { 2, 9, 10, 24, 25, 32, 100 }
     for i, q in ipairs(qs) do md[i * 10] = { [i * 10] = q } end
@@ -523,14 +931,19 @@ test("overlay: at the default each band weighs what the old ramp did; red never 
     S.mapID, S.zoom = ELWYNN, 1
     WorldMapFrame:OnMapChanged()
     for i, q in ipairs(qs) do
-        local sq = assert(squareAt(i * 10 + 1, i * 10 + 1, 100), "q " .. q)
-        local red = isRed(sq._color)
-        eq(red, q >= 25, "q " .. q .. " red from the hot threshold")
-        near(sq._color[4], mapWeight(q, red), "q " .. q .. " weight", 1e-9)
-        if red then assert(sq._color[4] >= 0.4, "red floor") end
+        local want = { ns.MapColor(loneInner(q) / 100, NAGDeathRadarSettings) }
+        local sq = cellTex(i * 20, i * 20)
+        if want[1] then
+            assert(sq, "q " .. q)
+            for k = 1, 4 do eq(sq._color[k], want[k], ("q %d channel %d"):format(q, k)) end
+            if isMapRed(sq._color) then assert(sq._color[4] >= 0.5, "red floor") end
+        else
+            eq(sq, nil, "q " .. q .. " smoothed under the low band")
+        end
     end
-    SlashCmdList.NAGDEATHRADAR("threshold 0.05") -- red from q 5: the floor holds q 9's red at 0.4
-    near(squareAt(21, 21, 100)._color[4], 0.4, "q 9 red at its floor", 1e-9)
+    SlashCmdList.NAGDEATHRADAR("threshold 0.05") -- red from q 5: q 9 is hot, its fine cells lifted to red
+    local sq = cellTex(40, 40)
+    assert(isMapRed(sq._color) and sq._color[4] >= 0.5, "q 9 red at its floor")
 end)
 
 test("overlay: /ndr alpha scales the map squares only, refuses nan, inf and out of range, and persists", function()
@@ -540,8 +953,13 @@ test("overlay: /ndr alpha scales the map squares only, refuses nan, inf and out 
     WorldMapFrame:OnMapChanged()
     SlashCmdList.NAGDEATHRADAR("alpha 0.5")
     eq(NAGDeathRadarSettings.mapAlpha, 0.5)
-    near(squareAt(46, 29, 100)._color[4], mapWeight(32, true, 0.5), "hot square at half", 1e-9)
-    near(squareAt(32, 17, 100)._color[4], mapWeight(5, false, 0.5), "quiet square at half", 1e-9)
+    local s = NAGDeathRadarSettings
+    near(cellTex(90, 56)._color[4], select(4, ns.MapColor(0.32, s)), "hot cell at half (its own q 32)", 1e-9)
+    near(cellTex(62, 32)._color[4], select(4, ns.MapColor(0.05, s)), "quiet cell at half", 1e-9)
+    s.mapAlpha = 1
+    local full = select(4, ns.MapColor(0.05, s))
+    s.mapAlpha = 0.5
+    near(cellTex(62, 32)._color[4], full * 0.5, "half the full weight", 1e-9)
     standAt(ELWYNN, 45, 28, 0)
     ns.Radar.Paint()
     for i = 1, ns.Radar.BlipCount() do
