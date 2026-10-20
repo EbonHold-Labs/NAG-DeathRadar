@@ -11,7 +11,8 @@ local addonName, ns = ...
 local type, pairs, ipairs, pcall, floor = type, pairs, ipairs, pcall, math.floor
 
 ns.DATA_VERSION = 1 -- the NAGDeathData.v this addon reads
-ns.GRID = 100       -- cells per side of every uiMapID
+ns.GRID = 100       -- cells per side of every uiMapID in `map` (the radar's grid)
+ns.FINE_GRID = 200  -- the world map's display grid: cells per side
 ns.modules = {}     -- overlay and radar: Init(), Refresh(settings)
 
 -- ============================ client reads ============================
@@ -110,6 +111,65 @@ local function isNum(v)
     return type(v) == "number" and v == v
 end
 
+-- THE OPTIONAL `fine` FIELD (proposed to the server, relay of 2026-10-20; tools/make_fixtures.py encode_fine is
+-- the reference encoder): finer cells for the world map, beside `map`, which stays for the radar and older copies.
+--   fine = { grid = 200, cellBase = 0, levels = 64, [uiMapID] = "x,y,cells;x,y,cells;..." }
+-- grid: cells per side, an integer FINE_GRID..400 (never coarser than the map draws, which would leave holes). cellBase: 0 or 1, 0 when absent. levels: q steps, 2..64, 64 when
+-- absent. One string per map, segments joined by ";": the column x, the first row y (decimal, in cellBase) and
+-- one character per cell at rows y, y+1, ... A character's position p in FINE_ALPHABET is level p + 1, read as
+-- q = 100 * (p + 1) / levels. A field that breaks any of this is ignored and the map draws from `map`; a map
+-- whose string breaks it is ignored alone.
+ns.FINE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+ns.FINE_MAX_GRID = 400
+
+local FINE_LEVEL = {} -- a character's byte -> its 0-based position in the alphabet
+for i = 1, #ns.FINE_ALPHABET do FINE_LEVEL[ns.FINE_ALPHABET:byte(i)] = i - 1 end
+
+--- One map's packed string -> its 0-based grid { [x] = { [y] = q } } and cell count, or nil.
+function ns.DecodeFineMap(str, grid, base, levels)
+    if type(str) ~= "string" then return nil end
+    local out, n = {}, 0
+    for seg in str:gmatch("[^;]+") do
+        local x, y, cells = seg:match("^(%d+),(%d+),([%w%-_]+)$")
+        if not x then return nil end
+        x, y = tonumber(x) - base, tonumber(y) - base
+        if x < 0 or x >= grid or y < 0 or y + #cells > grid then return nil end
+        local col = out[x]
+        if not col then col = {}; out[x] = col end
+        for k = 1, #cells do
+            local p = FINE_LEVEL[cells:byte(k)]
+            if not p or p >= levels then return nil end
+            if col[y + k - 1] == nil then n = n + 1 end
+            col[y + k - 1] = 100 * (p + 1) / levels
+        end
+    end
+    if n == 0 then return nil end
+    return out, n
+end
+
+--- The `fine` field -> { map = { [uiMapID] = grid }, grid = cells per side, maps = count } and "ok", or nil and a
+--- reason ("absent", "format", "grid", "cellBase", "levels", "empty").
+function ns.LoadFine(raw)
+    local f = raw.fine
+    if f == nil then return nil, "absent" end
+    if type(f) ~= "table" then return nil, "format" end
+    local grid, base, levels = f.grid, f.cellBase, f.levels
+    if base == nil then base = 0 end
+    if levels == nil then levels = #ns.FINE_ALPHABET end
+    if not isInt(grid) or grid < ns.FINE_GRID or grid > ns.FINE_MAX_GRID then return nil, "grid" end
+    if base ~= 0 and base ~= 1 then return nil, "cellBase" end
+    if not isInt(levels) or levels < 2 or levels > #ns.FINE_ALPHABET then return nil, "levels" end
+    local maps, nMaps = {}, 0
+    for m, str in pairs(f) do
+        if isInt(m) and m > 0 then
+            local g = ns.DecodeFineMap(str, grid, base, levels)
+            if g then maps[m], nMaps = g, nMaps + 1 end
+        end
+    end
+    if nMaps == 0 then return nil, "empty" end
+    return { map = maps, grid = grid, maps = nMaps }, "ok"
+end
+
 --- The data check. Reads only the fields it knows and ignores every other one. Returns the data or nil, and a
 --- reason. The data's cells are normalised to 0-based indices (0..99) whatever the file's base:
 --- `cellBase` is read from the file, 1 when absent (relay 3460 plus the cell-base amendment). Every way the file
@@ -149,11 +209,15 @@ function ns.LoadData(raw)
     end
     if nMaps == 0 then return nil, "empty" end
     local published = isNum(raw.published) and raw.published or nil
+    -- `fine` only adds: whatever it holds, the data above stands (a decode that raises reads no fine at all).
+    local okFine, fine, fineReason = pcall(ns.LoadFine, raw)
+    if not okFine then fine, fineReason = nil, "error" end
     return {
         map = maps, maps = nMaps, cells = nCells, base = base,
         stamp = published or (isNum(raw.generated) and raw.generated or nil), -- epoch seconds, published first
         rows = isInt(raw.rows) and raw.rows or nil,
         contributors = isInt(raw.contributors) and raw.contributors or nil,
+        fine = fine, fineReason = fineReason,
     }, "ok"
 end
 

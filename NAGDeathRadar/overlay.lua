@@ -1,6 +1,14 @@
---- NAG Death Radar: the heatmap on the world map. One square texture per bucket on WorldMapFrame's canvas,
---- redrawn when the map, the zoom bucket or the canvas size changes. Textures are pooled, never destroyed.
---- Only where the client's WorldMapFrame has a canvas (GetCanvas); elsewhere the module does nothing.
+--- NAG Death Radar: the heatmap on the world map, on WorldMapFrame's canvas, redrawn when the map, the settings
+--- or the canvas size changes (not on zoom: every zoom shows the same picture). Only where the client's
+--- WorldMapFrame has a canvas (GetCanvas); elsewhere the module does nothing.
+---
+--- THE PICTURE is a FINE_GRID (200) x 200 grid per map: the file's `fine` cells when it has them for the map,
+--- else its 100 grid upsampled bilinearly (ns.Upsample), where a fine cell is never under its own 100-cell's
+--- colour band, so a cell the radar calls hot is red on the map too. Same-colour cells along a row are one
+--- texture (ns.Runs: the band and the alpha rounded to ALPHA_STEP); over CAP textures the grid is folded to
+--- 100, then 50, then 25 per side, keeping each bucket's hottest cell. A texture is anchored at its TOPLEFT and
+--- BOTTOMRIGHT from the same edge formula as its neighbours, with pixel snapping off, so touching squares meet
+--- on one edge: no gap, no double-blended line. Textures are pooled, never destroyed.
 ---
 --- THE LAYER sits just above the map art and the explored-area overlays and below the pins and the player
 --- arrow: its frame level is the map's own "PIN_FRAME_LEVEL_MAP_EXPLORATION" level plus one, read (never
@@ -22,19 +30,20 @@ local O = {}
 table.insert(ns.modules, O)
 ns.Overlay = O
 
-O.CAP = 2500 -- textures at most; a denser picture is drawn at the next coarser bucket size
+O.CAP = 2500       -- textures at most; a denser picture is drawn at the next coarser grid
+O.ALPHA_STEP = 0.02 -- a run's alpha is rounded to this step, so neighbours a shade apart share a texture
 
---- Merge the 0-based 100 x 100 grid into n x n buckets (1-based, 1..n), keeping the highest q per bucket.
---- Returns the buckets and their count.
-function ns.Rebucket(mapData, n)
+--- Fold a 0-based `from` x `from` grid (ns.GRID when absent) into n x n buckets (1-based, 1..n), keeping the
+--- highest q per bucket. Returns the buckets and their count.
+function ns.Rebucket(mapData, n, from)
+    from = from or ns.GRID
     local out, count = {}, 0
-    local GRID = ns.GRID
     for ix, col in pairs(mapData) do
-        local bx = floor(ix * n / GRID) + 1
+        local bx = floor(ix * n / from) + 1
         local o = out[bx]
         if not o then o = {}; out[bx] = o end
         for iy, q in pairs(col) do
-            local by = floor(iy * n / GRID) + 1
+            local by = floor(iy * n / from) + 1
             local had = o[by]
             if not had then count = count + 1 end
             if (had or 0) < q then o[by] = q end
@@ -43,26 +52,109 @@ function ns.Rebucket(mapData, n)
     return out, count
 end
 
---- Zoomed out -> coarse, zoomed in -> the full grid. z: 0 .. 1 (the canvas zoom percent).
-function ns.BucketsForZoom(z)
-    if type(z) ~= "number" or z < 1 / 3 then return 25 end
-    if z < 2 / 3 then return 50 end
-    return 100
+--- The lowest intensity of the band ns.Color gives i, in ns.Color's own order; 0 below the low band.
+local function bandFloor(i, s)
+    if i >= s.hot then return s.hot end
+    if i >= s.thrMid then return s.thrMid end
+    if i >= s.thrLow then return s.thrLow end
+    return 0
 end
 
---- The buckets to draw for zoom bucket n, under the texture cap: halve n until the count fits.
-function ns.CappedBuckets(mapData, n, cap)
-    local b, count = ns.Rebucket(mapData, n)
-    while count > cap and n > 25 do
-        n = n / 2
-        b, count = ns.Rebucket(mapData, n)
+--- A 0-based ns.GRID grid -> the 0-based FINE_GRID grid, bilinear between cell centres (an edge cell repeats past
+--- the edge), each fine cell raised to the floor of its own 100-cell's band (settings s). Only cells above 0.
+function ns.Upsample(md, s)
+    local from, to = ns.GRID, ns.FINE_GRID
+    local k = to / from
+    local function q(x, y)
+        if x < 0 then x = 0 elseif x >= from then x = from - 1 end
+        if y < 0 then y = 0 elseif y >= from then y = from - 1 end
+        local col = md[x]
+        return col and col[y] or 0
     end
-    return b, n, count
+    -- The fine cells a source cell i reaches: |(j + 0.5) / k - 0.5 - i| < 1.
+    local function span(i)
+        local lo, hi = floor((i - 0.5) * k - 0.5) + 1, math.ceil((i + 1.5) * k - 0.5) - 1
+        return lo < 0 and 0 or lo, hi >= to and to - 1 or hi
+    end
+    local out, seen = {}, {}
+    for ix, col in pairs(md) do
+        local x0, x1 = span(ix)
+        for iy in pairs(col) do
+            local y0, y1 = span(iy)
+            for jx = x0, x1 do
+                for jy = y0, y1 do
+                    local id = jx * to + jy
+                    if not seen[id] then
+                        seen[id] = true
+                        local u, v = (jx + 0.5) / k - 0.5, (jy + 0.5) / k - 0.5
+                        local ux, vy = floor(u), floor(v)
+                        local tx, ty = u - ux, v - vy
+                        local val = (1 - tx) * (1 - ty) * q(ux, vy) + tx * (1 - ty) * q(ux + 1, vy)
+                            + (1 - tx) * ty * q(ux, vy + 1) + tx * ty * q(ux + 1, vy + 1)
+                        local parent = q(floor(jx / k), floor(jy / k))
+                        if parent > 0 then
+                            local f = bandFloor(parent / 100, s) * 100
+                            if val < f then val = f end
+                        end
+                        if val > 0 then
+                            local o = out[jx]
+                            if not o then o = {}; out[jx] = o end
+                            o[jy] = val
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
+--- Same-colour runs along each row of n x n buckets (1-based) in the map's colours: a list of
+--- { x0 = first bucket, x1 = last bucket, y = row, r, g, b, a }. Nothing below the low band.
+function ns.Runs(buckets, n, s)
+    local rows = {}
+    for bx, col in pairs(buckets) do
+        for by, q in pairs(col) do
+            local r, g, b, a = ns.MapColor(q / 100, s)
+            if r then
+                local row = rows[by]
+                if not row then row = {}; rows[by] = row end
+                row[#row + 1] = { bx, r, g, b, floor(a / O.ALPHA_STEP + 0.5) }
+            end
+        end
+    end
+    local runs = {}
+    for by, row in pairs(rows) do
+        table.sort(row, function(p, q) return p[1] < q[1] end)
+        local cur
+        for _, c in ipairs(row) do
+            if cur and c[1] == cur.x1 + 1 and c[2] == cur.r and c[3] == cur.g and c[4] == cur.b and c[5] == cur.step then
+                cur.x1 = c[1]
+            else
+                cur = { x0 = c[1], x1 = c[1], y = by, r = c[2], g = c[3], b = c[4], step = c[5], a = c[5] * O.ALPHA_STEP }
+                runs[#runs + 1] = cur
+            end
+        end
+    end
+    return runs
+end
+
+--- The runs of a 0-based `from` grid drawn n per side, under the texture cap: halve n until they fit (25 at
+--- the least). Returns the runs and n.
+function ns.CappedRuns(src, from, n, cap, s)
+    local runs = ns.Runs(ns.Rebucket(src, n, from), n, s)
+    while #runs > cap and n > 25 do
+        n = n / 2
+        runs = ns.Runs(ns.Rebucket(src, n, from), n, s)
+    end
+    return runs, n
 end
 
 local layer, label, toggle, menuEntry
 local pool, used = {}, 0
-local lastMap, lastN
+local lastMap
+local upCache = {}  -- the last map's upsampled grid, for its 100 grid and bands
+local runCache = {} -- the last picture's runs, for its source grid and colours (a map reopens without rework)
 
 local function mapFrame()
     local W = _G.WorldMapFrame
@@ -72,22 +164,6 @@ end
 local function currentMap(W)
     local ok, map = pcall(W.GetMapID, W)
     if ok and not ns.IsSecret(map) and type(map) == "number" then return map end
-end
-
---- The canvas zoom 0..1. A map with a single zoom scale answers 0 % (PercentageBetween with min == max), which
---- would draw it at the coarsest level for good: such a map is drawn at full detail (1).
-local function zoom(W)
-    if type(W.GetScaleForMinZoom) == "function" and type(W.GetScaleForMaxZoom) == "function" then
-        local okLo, lo = pcall(W.GetScaleForMinZoom, W)
-        local okHi, hi = pcall(W.GetScaleForMaxZoom, W)
-        if okLo and okHi and not ns.IsSecret(lo) and not ns.IsSecret(hi) and type(lo) == "number"
-            and type(hi) == "number" and hi <= lo then
-            return 1
-        end
-    end
-    if type(W.GetCanvasZoomPercent) ~= "function" then return nil end
-    local ok, z = pcall(W.GetCanvasZoomPercent, W)
-    if ok and not ns.IsSecret(z) then return z end
 end
 
 local function hideAll()
@@ -105,42 +181,62 @@ local function say(text)
     end
 end
 
+--- The grid the map draws for a uiMapID and its cells per side: the file's `fine` cells for the map, else its
+--- 100 grid upsampled to FINE_GRID. nil without data for the map.
+function O.Source(map, s)
+    local d = ns.data
+    local fine = d and d.fine and type(map) == "number" and d.fine.map[map]
+    if fine then return fine, d.fine.grid end
+    local md = ns.MapData(map)
+    if not md then return nil end
+    local key = s.hot .. ":" .. s.thrMid .. ":" .. s.thrLow
+    if upCache.md ~= md or upCache.key ~= key then
+        upCache.md, upCache.key, upCache.grid = md, key, ns.Upsample(md, s)
+    end
+    return upCache.grid, ns.FINE_GRID
+end
+
+--- Pixel snapping off, where the client has the calls: a square's edges stay where they are set.
+local function noSnap(t)
+    if type(t.SetSnapToPixelGrid) == "function" then t:SetSnapToPixelGrid(false) end
+    if type(t.SetTexelSnappingBias) == "function" then t:SetTexelSnappingBias(0) end
+end
+
 function O.Redraw(force)
     if not layer then return end
     local s = NAGDeathRadarSettings
     local W = mapFrame()
     local map = W and currentMap(W)
-    local n = W and ns.BucketsForZoom(zoom(W)) or 25
-    if not force and map == lastMap and n == lastN then return end
-    lastMap, lastN = map, n
+    if not force and map == lastMap then return end
+    lastMap = map
     hideAll()
     if not s.overlay then return say(nil) end
     if not ns.data then return say(ns.NO_DATA) end
-    local md = ns.MapData(map)
-    if not md then return say(ns.NO_MAP_DATA) end
+    local src, from = O.Source(map, s)
+    if not src then return say(ns.NO_MAP_DATA) end
     say(nil)
-    local buckets, drawn = ns.CappedBuckets(md, n, O.CAP)
-    local cw, ch = layer:GetWidth() / drawn, layer:GetHeight() / drawn
-    -- The radar's own bands (ns.MapColor: ns.Color's colours at the map's lighter weight): a square that holds a
-    -- hot cell (the max is kept) is the same red the radar points at, at every zoom; below the low band nothing
-    -- is drawn, as on the radar.
-    for bx, col in pairs(buckets) do
-        for by, q in pairs(col) do
-            local r, g, b, a = ns.MapColor(q / 100, s)
-            if r then
-                used = used + 1
-                local t = pool[used]
-                if not t then
-                    t = layer:CreateTexture(nil, "ARTWORK")
-                    pool[used] = t
-                end
-                t:SetColorTexture(r, g, b, a)
-                t:ClearAllPoints()
-                t:SetPoint("TOPLEFT", layer, "TOPLEFT", (bx - 1) * cw, -(by - 1) * ch)
-                t:SetSize(cw, ch)
-                t:Show()
-            end
+    local key = s.hot .. ":" .. s.thrMid .. ":" .. s.thrLow .. ":" .. s.mapAlpha .. ":" .. O.CAP
+    if runCache.src ~= src or runCache.key ~= key then
+        runCache.src, runCache.key = src, key
+        runCache.runs, runCache.n = ns.CappedRuns(src, from, ns.FINE_GRID, O.CAP, s)
+    end
+    local runs, n = runCache.runs, runCache.n
+    local cw, ch = layer:GetWidth() / n, layer:GetHeight() / n
+    -- The radar's own bands (ns.MapColor: ns.Color's colours at the map's lighter weight). Both corners come from
+    -- one edge formula, k * cw and k * ch, so a run ends exactly where its neighbour starts.
+    for _, run in ipairs(runs) do
+        used = used + 1
+        local t = pool[used]
+        if not t then
+            t = layer:CreateTexture(nil, "ARTWORK")
+            noSnap(t)
+            pool[used] = t
         end
+        t:SetColorTexture(run.r, run.g, run.b, run.a)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", layer, "TOPLEFT", (run.x0 - 1) * cw, -(run.y - 1) * ch)
+        t:SetPoint("BOTTOMRIGHT", layer, "TOPLEFT", run.x1 * cw, -run.y * ch)
+        t:Show()
     end
 end
 
@@ -162,7 +258,7 @@ function O.Init()
     if not W then return end
     local ok, canvas = pcall(W.GetCanvas, W)
     if not ok or type(canvas) ~= "table" then return end
-    layer = CreateFrame("Frame", nil, canvas)
+    layer = CreateFrame("Frame", "NAGDeathRadarMapLayer", canvas) -- named for in-game probes
     layer:SetAllPoints(canvas)
     layer:SetFrameLevel(layerLevel(W, canvas))
     layer:SetScript("OnSizeChanged", function() O.Redraw(true) end)
@@ -177,9 +273,6 @@ function O.Init()
     label:Hide()
     if type(W.OnMapChanged) == "function" then
         hooksecurefunc(W, "OnMapChanged", function() O.Redraw() end)
-    end
-    if type(W.OnCanvasScaleChanged) == "function" then
-        hooksecurefunc(W, "OnCanvasScaleChanged", function() O.Redraw() end)
     end
     W:HookScript("OnShow", function()
         O.RaiseToggle()

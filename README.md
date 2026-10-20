@@ -5,6 +5,7 @@ levelling:
 
 - a **heatmap on the world map**: the danger zones of the open map in the radar's own colours (light
   blue from 0.02, yellow from 0.10, red from the `threshold` setting), so a cell the radar points at is red on the map too;
+  drawn 200 x 200 per map at every zoom, smoothed between cells (the file's `fine` cells where it has them);
   lighter than on the radar so the map art reads through, with its own opacity (`/ndr alpha`) and an on/off box on the map;
 - a **radar** that turns with you (the direction you face is up), shows the death cells around you and
   points to the nearest danger zone, from the rim when it is further than the radar reaches. While you
@@ -62,6 +63,8 @@ NAGDeathData = {
   next = 1792540800, rows = 231, contributors = 5,
   flavor = "camelot",
   map = { [uiMapID] = { [x] = { [y] = q } } },   -- a 100 x 100 grid per map, q 1..100
+  fine = { grid = 200, cellBase = 0, levels = 64,  -- optional (proposed): finer cells for the world map
+           [uiMapID] = "x,y,cells;x,y,cells;..." },
   -- killers, bands, instances and any other field: ignored by the addon
 }
 ```
@@ -69,6 +72,18 @@ NAGDeathData = {
 - **The cell base.** The server bins a map position 0..10000 as `x * 100 // 10001`, so its cells are 0..99.
   The file states its base in `cellBase`; when the field is absent the addon reads cells as 1..100 (the
   first contract). The side that writes the file must state the base.
+- **The world map draws 200 x 200 per map.** From `map`, each cell is upsampled bilinearly between cell
+  centres, and a fine cell is never drawn under its own cell's colour band, so the radar's red stays red on the
+  map. Touching cells of one colour along a row are one texture; past 2,500 textures the picture is folded to
+  100, 50 or 25 per side, keeping each square's hottest cell.
+- **`fine`, optional (proposed to the server; none sends it yet).** Finer cells for the world map only: the
+  radar and older copies keep reading `map`, which stays. `grid` is the cells per side (200..400),
+  `cellBase` 0 or 1 (0 when absent), `levels` the q steps (2..64, 64 when absent). One string per map:
+  segments joined by `;`, each the column `x`, the first row `y` and one character per cell at rows `y`,
+  `y+1`, ...; a character's position `p` in `A-Z a-z 0-9 - _` is level `p + 1`, read as
+  `q = 100 * (p + 1) / levels`. A gap starts a new segment. A bad `fine` is ignored whole; a map whose string
+  breaks the rules is ignored alone and draws from `map`. `tools/make_fixtures.py` (`encode_fine`) is the
+  reference encoder.
 - **Unknown fields are ignored**, so the server can add fields without an addon update.
 - **"No data yet"** is one state for every unusable file: missing, `NAGDeathData` nil, another `v`, a
   `map` that is not a table or holds no valid cell, or a bad `cellBase`. Nothing errors and nothing ticks.
@@ -94,8 +109,8 @@ lua5.1 tests/run.lua
 
 The runner loads the addon in toc order against `tests/wowstub.lua`, a strict WoW API stub (a widget
 method the stub does not know raises), and checks the data states, the cell base, the radar's maths
-(facing up, the rim clamp, yards, the nearest danger zone), the heatmap, the slash command and the
-settings panel. The fixtures in `tests/fixtures/` are written by the server's own export code:
+(facing up, the rim clamp, yards, the nearest danger zone), the heatmap (the upsampling and its band floor,
+the `fine` decoder, the row runs and the cap, the shared edges), the slash command and the settings panel. The fixtures in `tests/fixtures/` are written by the server's own export code:
 
 ```
 python3 -I tools/make_fixtures.py --tools-repo <a NextActionGuide-Tools clone> [--rev origin/main]
