@@ -179,6 +179,12 @@ test("flavor: data from another game is refused everywhere, 'no data for this ga
     eq(ns.data, nil, "camelot data on a TBC client is not loaded")
     eq(ns.dataReason, "flavor")
     eq(ns.StatusLine(), "no data for this game")
+    -- R.Refresh's own note (the one shown at load and after any settings change), before Paint can overwrite it.
+    local f = ns.RadarFrame
+    eq(f.note:GetText(), "no data for this game", "the radar's note at load")
+    f.note:SetText(nil)
+    ns.Radar.Refresh(NAGDeathRadarSettings)
+    eq(f.note:GetText(), "no data for this game", "the radar's note after a Refresh")
     S.mapID = ELWYNN
     WorldMapFrame:OnMapChanged()
     eq(ns.OverlayCount(), 0, "the map draws nothing")
