@@ -119,7 +119,7 @@ not be included in a feature commit.
 
 ## Experimental World view
 
-**Current behavior, `0.3.0-dev11`:** normal viewing does not move any waypoint.
+**Current behavior, `0.3.0-dev12`:** normal viewing does not move any waypoint.
 World starts in a clearly labelled approximate character-heading view. This avoids
 the repeated map/minimap pin changes caused by camera sampling. Enable
 `/ndr world anchors on` only when deliberately testing native camera projection;
@@ -135,6 +135,12 @@ the read-only direction view continues where position/data remain available.
 Native sampling must be restarted explicitly. Stop/hide/mode changes and control
 or map loss clear both views. A replay retains the same copied map outline and
 its replay label when switching to the direction view.
+
+Leaving combat keeps the direction view active. Layout changes preserve a paused
+sampler and the replay's original map position; help, options and diagnostics do
+not restart sampling. Perspective recovers from temporary position/heading loss
+even while standing still. Dense views stop geometry construction at the drawing
+budget and show a range-reduction notice instead of rendering partial regions.
 
 Moving direction views repaint at up to 60 FPS and reuse stationary geometry.
 An accepted camera projection follows player translation between measurement

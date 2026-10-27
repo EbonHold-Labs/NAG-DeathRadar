@@ -192,3 +192,12 @@ Dev11 direction fallback and quiet map, 2026-10-22:
 - [x] Native dev11 reload and quiet replay: status recorded zero sampling attempts, waypoint sampling off and no user waypoint. Map/minimap inspection showed no experimental pin. The copied replay outline and all new settings controls were visible. Replay was stopped before returning to normal data.
 - [ ] Native preservation of an existing user pin in quiet mode remains untested; zero-navigation behavior with an existing pin is covered automatically.
 - [ ] Native combat, sustained running, actual boundary alignment and terrain height remain separate checks. This change does not solve the elevation difference in the user's screenshots.
+
+PR #6 review fixes, 0.3.0-dev12, 2026-10-27:
+- [x] Quiet World viewing survives leaving combat without navigation access. Settings retain paused sampling after combat or an external quest takeover; explicit start or a fresh sampling opt-in can resume it.
+- [x] Help, options, probe and status do not interrupt active sampling or change navigation. Layout changes preserve a replay's original map position.
+- [x] Perspective redraws after temporary map, heading or map-size loss even when the character remains stationary.
+- [x] Contour and nested-fill budgets are checked before constructing the full draw model. Dense input returns an explicit complexity state with no partial regions.
+- [x] All six suites pass in Lua 5.1 and LuaJIT: 228 checks per interpreter, zero failures. A separate differential check preserves all model fields in 60 under-budget cases per interpreter.
+- [x] A local synthetic 2500-run stress case fell from 318 ms to 7 ms in Lua 5.1 and from 56 ms to 5 ms in LuaJIT by rejecting the over-budget model early. These timings are host-specific and do not measure native client FPS.
+- [ ] Repeat combat exit, settings after a pause, stationary position recovery and dense-region behavior in Forever. These review fixes have automated validation only.

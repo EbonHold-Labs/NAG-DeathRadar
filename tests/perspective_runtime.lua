@@ -262,6 +262,26 @@ test('invalid map dimensions clear safely',function()
         assert(p.Paint()=='no_position' and p.Counts()==0)
     end
 end)
+
+test('position and heading recovery repaint even when the character stays still',function()
+    for _,source in ipairs({'map','heading','size'}) do
+        local ns,p=boot()
+        local original
+        if source=='map' then
+            original=ns.Radar.MapRead;ns.Radar.MapRead=function()error('temporarily unavailable')end
+        elseif source=='heading' then
+            original=ns.Radar.FacingRead;ns.Radar.FacingRead=function()return 'secret',S.SECRET end
+        else
+            original=ns.MapYards;ns.MapYards=function()return nil end
+        end
+        S.frame(1/60);assert(p.state=='no_position',source)
+        if source=='map' then ns.Radar.MapRead=original
+        elseif source=='heading' then ns.Radar.FacingRead=original
+        else ns.MapYards=original end
+        S.frame(1/60)
+        assert(p.state=='ok' and p.frame:IsShown(),source..' recovery kept the unavailable note')
+    end
+end)
 test('no data has a status but no polling',function()
     local _,p=boot(true)
     assert(p.state=='no_data' and S.liveUpdates()==0 and p.statusText:GetText()=='no data yet')
@@ -311,6 +331,17 @@ test('over-budget model fails visibly without partial region drawing',function()
         return m
     end
     assert(p.Paint()=='complexity' and p.Counts()==0)
+    assert(p.statusText:GetText():find('Dense area',1,true))
+end)
+
+test('a dense map picture reports the geometry budget failure without a blank view',function()
+    local ns,p,runs=boot()
+    for i=#runs,1,-1 do runs[i]=nil end
+    for y=40,64 do for x=40,89 do
+        if (x+y)%2==0 then runs[#runs+1]={x0=x,x1=x,y=y,step=1000} end
+    end end
+    S.player.x,S.player.y=.325,.4;ns.Apply()
+    assert(p.state=='complexity' and p.Counts()==0)
     assert(p.statusText:GetText():find('Dense area',1,true))
 end)
 test('invalid geometry coordinates never reach UI primitives',function()

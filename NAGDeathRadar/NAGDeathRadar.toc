@@ -4,7 +4,7 @@
 ## Author: Rakizi, Fonsas (NAG)
 ## Group: NAG
 ## Category: Next Action Guides
-## Version: 0.3.0-dev11
+## Version: 0.3.0-dev12
 ## SavedVariables: NAGDeathRadarSettings
 
 Data\NAGDeathData.lua

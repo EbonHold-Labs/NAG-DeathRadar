@@ -481,7 +481,7 @@ ns.HELP = {
     "Bind Hold danger-view details under Key Bindings > NAG Death Radar; nothing is bound automatically.",
 }
 
---- Pure: returns the settings (a new table after reset), the reply lines, and an action ("panel") or nil.
+--- Pure: returns the settings (a new table after reset), reply lines, and an action or nil.
 function ns.Command(s, msg)
     local cmd, arg = (type(msg) == "string" and msg or ""):lower():match("^%s*(%S*)%s*(.-)%s*$")
     if cmd == "mode" and arg == "radar" then arg = "circle" end
@@ -544,7 +544,7 @@ function ns.Command(s, msg)
     end
     local lines = { ns.StatusLine() }
     for _, l in ipairs(ns.HELP) do lines[#lines + 1] = l end
-    return s, lines
+    return s, lines, 'help'
 end
 
 function ns.Say(msg)
@@ -564,6 +564,11 @@ SlashCmdList.NAGDEATHRADAR = function(msg)
     local lines, action
     NAGDeathRadarSettings, lines, action = ns.Command(NAGDeathRadarSettings, msg)
     for _, l in ipairs(lines) do ns.Say(l) end
+    if action == 'help' then return end
+    if action == 'panel' then
+        if ns.OpenPanel then ns.OpenPanel() end
+        return
+    end
     if action == "probe" then
         if ns.OpenProjectionProbe then ns.OpenProjectionProbe() end
         return -- collecting diagnostics does not refresh or change the radar
@@ -590,7 +595,6 @@ SlashCmdList.NAGDEATHRADAR = function(msg)
         end
         return
     end
-    if action == "panel" and ns.OpenPanel then ns.OpenPanel() end
     ns.Apply()
 end
 

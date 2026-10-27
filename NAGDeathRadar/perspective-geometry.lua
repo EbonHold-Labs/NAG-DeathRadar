@@ -2,7 +2,7 @@
 -- from the player (0) toward the horizon (height). This is an illustrative
 -- character-heading projection, not the actual gameplay camera or terrain.
 local _, ns = ...
-local G = {}
+local G = { MAX_LINES = 3000, MAX_TRIANGLES = 2500 }
 ns.PerspectiveGeometry = G
 local abs, sqrt, min, max = math.abs, math.sqrt, math.min, math.max
 local EPS, TAN = 1e-8, math.sqrt(3)
@@ -188,7 +188,7 @@ function G.Compute(p,v,opts)
         if dx*dx+dy*dy<=range*range or id==inside then candidates[id]=true end
     end
     local visible,distances={},{}
-    local segments={}
+    local segments,lineCount={},0
     for _,edge in ipairs(p.edges) do
         if candidates[edge.region] then
         local a,b=relative(edge.x1,edge.y1),relative(edge.x2,edge.y2)
@@ -196,12 +196,18 @@ function G.Compute(p,v,opts)
         distances[edge.region]=min(distances[edge.region] or math.huge,distance)
         local ca,cb=clipSegment(a,b,range)
         if ca then
+            local df,dr=cb.f-ca.f,cb.r-ca.r
+            local pieces=max(1,math.ceil(sqrt(df*df+dr*dr)/8))
+            lineCount=lineCount+pieces
+            -- Reject before constructing a model the 60 Hz view cannot draw.
+            if lineCount>G.MAX_LINES then result.status='complexity';return result end
             visible[edge.region]=true
-            segments[#segments+1]={a=ca,b=cb,region=edge.region}
+            segments[#segments+1]={a=ca,b=cb,region=edge.region,pieces=pieces}
         end
         end
     end
-    local polygons={}
+    local polygons,triangleCount={},0
+    local bands={{1,.018},{.93,.028},{.82,.044}}
     for _,rect in ipairs(p.rects) do
         if candidates[rect.region] then
         if v.px>=rect.x0 and v.px<rect.x1 and v.py>=rect.y0 and v.py<rect.y1 then
@@ -210,10 +216,14 @@ function G.Compute(p,v,opts)
         local poly={relative(rect.x0,rect.y0),relative(rect.x1,rect.y0),relative(rect.x1,rect.y1),relative(rect.x0,rect.y1)}
         poly=clipPoly(poly,1,0,0); poly=clipPoly(poly,TAN,-1,0); poly=clipPoly(poly,TAN,1,0)
         if hasArea(poly) then
-            local clipped=clipCirclePoly(poly,range)
-            if hasArea(clipped) then
-                visible[rect.region]=true
-                polygons[#polygons+1]={poly=poly,region=rect.region}
+            for _,band in ipairs(bands) do
+                local clipped=clipCirclePoly(poly,range*band[1])
+                if hasArea(clipped) then
+                    triangleCount=triangleCount+#clipped-2
+                    if triangleCount>G.MAX_TRIANGLES then result.status='complexity';return result end
+                    visible[rect.region]=true
+                    polygons[#polygons+1]={poly=clipped,region=rect.region,alpha=band[2]}
+                end
             end
         end
         end
@@ -231,7 +241,7 @@ function G.Compute(p,v,opts)
         local df,dr=segment.b.f-segment.a.f,segment.b.r-segment.a.r
         -- Subdivide only existing contour edges. A long edge can pass close to
         -- the player and reach the outer radius: each part needs its own fade.
-        local pieces=max(1,math.ceil(sqrt(df*df+dr*dr)/8))
+        local pieces=segment.pieces
         for piece=1,pieces do
             local t0,t1=(piece-1)/pieces,piece/pieces
             local pa={f=segment.a.f+df*t0,r=segment.a.r+dr*t0}
@@ -246,14 +256,10 @@ function G.Compute(p,v,opts)
     end
     -- Nested translucent fills make the outer range fade without introducing
     -- any contour at those clipping limits. All original holes remain empty.
-    local bands={{1,.018},{.93,.028},{.82,.044}}
-    for _,polygon in ipairs(polygons) do for _,band in ipairs(bands) do
-        local poly=clipCirclePoly(polygon.poly,range*band[1])
-        if hasArea(poly) then
-            local points={}; for _,point in ipairs(poly) do points[#points+1]=project(point) end
-            result.fills[#result.fills+1]={points=points,alpha=band[2]*(polygon.region==nearest and 1.35 or 1)*(opts.detail and 2 or 1),region=polygon.region}
-        end
-    end end
+    for _,polygon in ipairs(polygons) do
+        local points={}; for _,point in ipairs(polygon.poly) do points[#points+1]=project(point) end
+        result.fills[#result.fills+1]={points=points,alpha=polygon.alpha*(polygon.region==nearest and 1.35 or 1)*(opts.detail and 2 or 1),region=polygon.region}
+    end
     result.status=(inside or #result.strokes>0 or #result.fills>0) and 'ok' or 'empty'
     return result
 end

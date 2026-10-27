@@ -147,5 +147,25 @@ test('maximum allowed fragmented input bounds component count',function()
     eq(p.valid,true); eq(#p.regions,2500)
     assert(#p.regions<=#runs)
 end)
+
+test('over-budget visible contours return a complexity state without partial drawing',function()
+    local runs={}
+    for y=1,50 do for x=1,100 do
+        if (x+y)%2==0 then runs[#runs+1]=run(x,x,y) end
+    end end
+    local p=G.Build(runs,200);assert(p.valid)
+    local m=G.Compute(p,view(.25,.25,600,600),{range=180,width=720,height=160})
+    eq(m.status,'complexity');eq(#m.strokes,0);eq(#m.fills,0)
+end)
+
+test('nested fills have a separate triangle budget even with fewer than 3000 contours',function()
+    local runs={}
+    for y=40,64 do for x=40,89 do
+        if (x+y)%2==0 then runs[#runs+1]=run(x,x,y) end
+    end end
+    local p=G.Build(runs,200);assert(p.valid)
+    local m=G.Compute(p,view(.325,.4,600,600),{range=180,width=720,height=160})
+    eq(m.status,'complexity');eq(#m.strokes,0);eq(#m.fills,0)
+end)
 print(string.format('%d geometry tests, %d failed',count,failures))
 if failures>0 then os.exit(1) end

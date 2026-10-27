@@ -371,23 +371,35 @@ function W.Update(dt)
     local ok,why=pcall(step,dt)
     if not ok then W.lastError=tostring(why);W.Stop('error',true) end
 end
-function W.Start(preview)
+function W.Start(preview,allowSampling)
     W.Stop();W.replayMode=preview==true;W.quadrant=0;W.poll=0;W.fading=false;W.sessionMap=nil
     if not W.IsSelected() then return end
     W.lastError=nil;W.lastModel=nil;W.navigationChange=nil;W.pauseReason=nil
     W.stats={attempts=0,rejected=0,reasons={},batches=0,accepted=0,switches=0}
     W.active=true
-    W.armed=NAGDeathRadarSettings.worldAnchors==true and not W.backup and not ns.InCombat()
+    W.anchorSetting=NAGDeathRadarSettings.worldAnchors==true
+    W.armed=allowSampling~=false and W.anchorSetting and not W.backup and not ns.InCombat()
     note(ns.InCombat() and 'combat' or (W.armed and 'calibrating' or 'directional'));ticker()
 end
 function W.Refresh(s)
     if not frame then return end
     local restart=W.active and W.IsSelected();local preview=W.replayMode
+    -- A layout/help refresh is not consent to resume a paused camera sampler.
+    -- Only explicit start or a fresh opt-in may arm it again.
+    local enabling=W.anchorSetting==false and s.worldAnchors==true
+    local allowSampling=W.armed or enabling
+    local pauseReason,replayGeometry,sessionMap=W.pauseReason,W.replay,W.sessionMap
+    W.anchorSetting=s.worldAnchors==true
     W.Stop()
     cachedRuns,cachedN,prepared=nil,nil,nil
     status:ClearAllPoints();status:SetPoint('CENTER',UIParent,'CENTER',s.viewX,s.viewY-20)
     caption:ClearAllPoints();caption:SetPoint('BOTTOM',status,'TOP',0,4)
-    if restart then W.Start(preview) end
+    if restart then
+        W.Start(preview,allowSampling)
+        W.replay,W.sessionMap=replayGeometry,sessionMap
+        if not W.armed and not enabling then W.pauseReason=pauseReason end
+        if W.pauseReason then note(W.pauseReason) end
+    end
 end
 function W.Init()
     if frame then return end
@@ -399,10 +411,11 @@ function W.Init()
     status=text:CreateFontString(nil,'OVERLAY','GameFontHighlightSmall')
     caption=text:CreateFontString(nil,'OVERLAY','GameFontNormalSmall')
     driver:SetScript('OnEvent',function(_,event)
-        if event=='PLAYER_REGEN_ENABLED' and W.backup then
-            if tryRelease() and not W.active then note('stopped') end;ticker();return
+        if event=='PLAYER_REGEN_ENABLED' then
+            if W.backup and tryRelease() and not W.active then note('stopped') end
+            ticker();return
         end
-        if event=='PLAYER_REGEN_DISABLED' then if W.active then W.Stop('combat',true) end;return end
+        if event=='PLAYER_REGEN_DISABLED' then if W.active and W.armed then W.Stop('combat',true) end;return end
         if W.active or W.backup then W.Stop('control') end
     end)
     for _,e in ipairs({'PLAYER_LEAVING_WORLD','PLAYER_CONTROL_LOST','PLAYER_LOGOUT','ZONE_CHANGED_NEW_AREA',

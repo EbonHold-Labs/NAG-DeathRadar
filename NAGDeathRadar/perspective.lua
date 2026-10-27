@@ -2,7 +2,8 @@
 -- camera and terrain. No Journey code/art, camera setters, or waypoint writes.
 -- License: CC BY-NC 4.0
 local _, ns = ...
-local P = { detail = false, preview = false, MAX_LINES = 3000, MAX_TRIANGLES = 2500 }
+local P = { detail = false, preview = false,
+    MAX_LINES = ns.PerspectiveGeometry.MAX_LINES, MAX_TRIANGLES = ns.PerspectiveGeometry.MAX_TRIANGLES }
 ns.Perspective = P
 table.insert(ns.modules, P)
 local frame, driver, statusText, label, tint, mover
@@ -239,7 +240,12 @@ function P.Paint(knownMap,knownView)
     if not ns.data and not P.preview then return note('no_data',ns.NoDataText()) end
     local map,v=knownMap,knownView
     if not map then map,v=context() end
-    if not map then return note('no_position','No position or heading here') end
+    if not map then
+        -- A failed read invalidates the stationary cache too. Recovery can
+        -- return the exact same position/heading as the last successful paint.
+        lastContext=nil
+        return note('no_position','No position or heading here')
+    end
     local p
     lastContext={map=map,px=v.px,py=v.py,facing=v.facing,W=v.W,H=v.H,detail=P.detail}
     if P.fallback then
@@ -269,6 +275,7 @@ function P.Paint(knownMap,knownView)
     local s=NAGDeathRadarSettings
     local ok,m=pcall(ns.PerspectiveGeometry.Compute,p,v,{range=s.reach,width=s.viewWidth,height=s.viewHeight,detail=P.detail})
     if not ok or not m or m.status=='invalid' then return note('invalid','Danger view unavailable') end
+    if m.status=='complexity' then return note('complexity','Dense area: lower view range') end
     local valid,reason=validModel(m,s)
     if not valid then return note(reason or 'invalid',reason=='complexity' and 'Dense area: lower view range' or 'Danger view unavailable') end
     if m.status=='empty' then return note('empty',P.preview and 'SYNTHETIC PREVIEW - no preview areas ahead' or nil) end

@@ -420,6 +420,65 @@ test('combat retains a read-only direction view and never resumes waypoint write
     writes=n.writes;S.player.x=S.player.x+.001;tick(30)
     assert(n.writes==writes and not w.armed and ns.Perspective.frame:IsShown())
 end)
+
+test('the quiet direction view survives leaving combat without navigation access',function()
+    local ns,w,n,tick=boot({anchors=false})
+    C_Map.GetUserWaypoint=function()error('quiet combat view must not read navigation')end
+    SlashCmdList.NAGDEATHRADAR('world start');tick(3)
+    S.player.combat=true;S.fire('PLAYER_REGEN_DISABLED');tick(3)
+    assert(w.active and not w.armed and ns.Perspective.frame:IsShown())
+    S.player.combat=false;S.fire('PLAYER_REGEN_ENABLED');tick(3)
+    assert(w.active and not w.armed and ns.Perspective.frame:IsShown(),'leaving combat hid the direction view')
+    assert(n.writes==0)
+end)
+
+test('settings and help do not rearm camera sampling after a combat pause',function()
+    local ns,w,n,tick=boot();SlashCmdList.NAGDEATHRADAR('world preview');tick(24)
+    S.player.combat=true;S.fire('PLAYER_REGEN_DISABLED');tick(3)
+    S.player.combat=false;S.fire('PLAYER_REGEN_ENABLED');tick(3)
+    local writes=n.writes
+    for _,command in ipairs({'help','outline 1.5','reach 190','y 80'}) do
+        SlashCmdList.NAGDEATHRADAR(command);tick(24)
+        assert(w.active and not w.armed and n.writes==writes,'rearmed by '..command)
+        assert(ns.Perspective.frame:IsShown() and ns.Perspective.fallback.replay)
+    end
+    SlashCmdList.NAGDEATHRADAR('world start');tick(24)
+    assert(w.armed and n.writes>writes,'explicit start must still resume sampling')
+end)
+
+test('help, options, diagnostics and status do not interrupt an active sampler',function()
+    local _,w,n,tick=boot();SlashCmdList.NAGDEATHRADAR('world preview');tick(24)
+    for _,command in ipairs({'','help','options','probe','world status','unknown-command'}) do
+        local writes,backup,pose,stats=n.writes,w.backup,w.pose,w.stats
+        SlashCmdList.NAGDEATHRADAR(command)
+        assert(n.writes==writes and w.backup==backup and w.pose==pose and w.stats==stats,
+            'read-only command interrupted navigation: '..command)
+        assert(w.active and w.armed)
+    end
+end)
+
+test('settings do not take back navigation after an external quest change',function()
+    local _,w,n,tick=boot();SlashCmdList.NAGDEATHRADAR('world preview');tick(24)
+    n.quest=77;n.user=false;tick(3)
+    local writes=n.writes
+    SlashCmdList.NAGDEATHRADAR('width 800');tick(24)
+    assert(w.active and not w.armed and n.quest==77 and not n.point and n.writes==writes)
+end)
+
+test('layout changes keep the replay fixed at its original map position',function()
+    local ns,w,_,tick=boot({anchors=false});SlashCmdList.NAGDEATHRADAR('world preview');tick(3)
+    local original=w.replay
+    S.player.y=S.player.y-.01
+    SlashCmdList.NAGDEATHRADAR('fill 0.5');tick(3)
+    assert(w.replay==original,'refresh moved the replay back in front of the character')
+    assert(ns.Perspective.fallback.geometry==original)
+end)
+
+test('explicitly enabling waypoint sampling can arm an active direction view',function()
+    local _,w,n,tick=boot({anchors=false});SlashCmdList.NAGDEATHRADAR('world start');tick(3)
+    SlashCmdList.NAGDEATHRADAR('world anchors on');tick(24)
+    assert(w.armed and n.writes>0 and w.state=='ok')
+end)
 test('an external waypoint remains visible and untouched while the direction fallback continues',function()
     local ns,w,n,tick=boot();SlashCmdList.NAGDEATHRADAR('world preview');tick(24)
     local external=UiMapPoint.CreateFromCoordinates(1429,.12,.23);n.point=external
