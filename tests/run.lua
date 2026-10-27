@@ -93,18 +93,22 @@ end)
 -- ============================ data ============================
 
 test("the shipped data file is data only: it defines NAGDeathData alone, a v = 1 table with its flavor", function()
-    local env = {}
+    -- Every global the file reads raises, and every assignment is recorded, nil ones too: a second statement
+    -- (`next = v` would clear the game's `next` for every addon) cannot pass for data.
+    local assigned, values = {}, {}
+    local env = setmetatable({}, {
+        __index = function(_, k) error("the data file reads a global: " .. tostring(k), 2) end,
+        __newindex = function(_, k, val) assigned[#assigned + 1] = k; values[k] = val end,
+    })
     local chunk = assert(loadfile(ADDON .. DATA_FILE))
     setfenv(chunk, env)
     chunk()
-    local d = env.NAGDeathData
-    env.NAGDeathData = nil
-    eq(next(env), nil, "no other global")
+    eq(table.concat(assigned, ","), "NAGDeathData", "the one assignment")
+    local d = values.NAGDeathData
     eq(type(d), "table", "NAGDeathData")
     eq(d.v, 1, "v"); eq(type(d.flavor), "string", "flavor"); eq(type(d.map), "table", "map")
-    -- The game runs this file, and an empty environment skips code behind an `if`: outside its strings the text is
-    -- only braces, brackets, "=", ",", numbers and the export's field names (tools/snapshot_data.py's check, as the
-    -- app's), so no call or statement can hide in it.
+    -- Code behind an `if` never runs here: outside its strings the text is only braces, brackets, "=", ",", numbers
+    -- and the export's field names. tools/snapshot_data.py's check (the app's grammar) is the full rule.
     local fh = assert(io.open(ADDON .. DATA_FILE, "rb")); local text = fh:read("*a"); fh:close()
     local bare = text:gsub('"[^"\\\r\n]*"', '""')
     local FIELDS = { NAGDeathData = true, v = true, generated = true, flavor = true, cellBase = true, published = true,
