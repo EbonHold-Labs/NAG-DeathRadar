@@ -23,6 +23,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lua_literal import lua_table_literal_ok  # noqa: E402
+
 OUT = Path(__file__).resolve().parent.parent / "NAGDeathRadar" / "Data" / "NAGDeathData.lua"
 SERVER = "https://api.nextaction.guide"
 META = "/v1/public/deaths/published/meta.json"
@@ -56,6 +59,10 @@ def main():
         sys.exit("%s: the file is not the one meta.json names (the window rolled?); run it again" % args.flavor)
     if len(body) > MAX_BYTES or not body.lstrip().startswith(b"NAGDeathData = {"):
         sys.exit("%s: the answer is not the data file (%d bytes); nothing written" % (args.flavor, len(body)))
+    # The game runs this file: a matching sha proves only that two reads agree, so it must be one table literal and
+    # nothing else, the check the NAG app runs before its own write.
+    if not lua_table_literal_ok(body, "NAGDeathData"):
+        sys.exit("%s: the file is not only data (%d bytes); nothing written" % (args.flavor, len(body)))
     new = OUT.with_name(OUT.name + ".new")
     new.write_bytes(body)
     os.replace(new, OUT)

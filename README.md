@@ -63,7 +63,8 @@ Before a release, write the day's file and commit it with the version bump:
 python3 -I tools/snapshot_data.py            # --flavor camelot by default; a flavour with no window exits 1
 ```
 
-It reads meta.json, then the Lua by the sha256 meta names, and writes the file only when the two agree. One
+It reads meta.json, then the Lua by the sha256 meta names, and writes the file only when the two agree and
+the file is one table literal and nothing else (`tools/lua_literal.py`, the NAG app's own check). One
 file serves every client and only Forever collects, so the release carries Forever's data; the other clients
 show "no data for this game".
 

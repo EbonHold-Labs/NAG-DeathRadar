@@ -102,6 +102,20 @@ test("the shipped data file is data only: it defines NAGDeathData alone, a v = 1
     eq(next(env), nil, "no other global")
     eq(type(d), "table", "NAGDeathData")
     eq(d.v, 1, "v"); eq(type(d.flavor), "string", "flavor"); eq(type(d.map), "table", "map")
+    -- The game runs this file, and an empty environment skips code behind an `if`: outside its strings the text is
+    -- only braces, brackets, "=", ",", numbers and the export's field names (tools/snapshot_data.py's check, as the
+    -- app's), so no call or statement can hide in it.
+    local fh = assert(io.open(ADDON .. DATA_FILE, "rb")); local text = fh:read("*a"); fh:close()
+    local bare = text:gsub('"[^"\\\r\n]*"', '""')
+    local FIELDS = { NAGDeathData = true, v = true, generated = true, flavor = true, cellBase = true, published = true,
+        ["next"] = true, rows = true, contributors = true, map = true, killers = true, bands = true, instances = true,
+        fine = true, grid = true, levels = true }
+    for name in bare:gmatch("[%a_][%w_]*") do
+        assert(FIELDS[name], "a name that is not an export field: " .. name)
+    end
+    local other = bare:gsub('""', ""):gsub("[%w_%s%[%]{}=,%-%.]", "")
+    eq(other, "", "characters other than data")
+    assert(not bare:find("%.%.", 1), "no concatenation")
 end)
 
 local NO_DATA_STATES = {
