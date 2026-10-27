@@ -30,7 +30,8 @@ without NAG.
 | WoW Forever | `NAGDeathRadar_camelot.toc` (`AllowLoadGameType: camelot`) | 16001 |
 | Classic Era, Anniversary (TBC), Titan Reforged, MoP Classic | `NAGDeathRadar.toc` | 11509, 20506, 38000, 38002, 50504 |
 
-Only Forever collects deaths today, so every other client shows "no data yet".
+Only Forever collects deaths today. The radar draws a file only on the game named in its `flavor`, so every
+other client shows "no data for this game" (or "no data yet" when no file is there at all).
 
 ## Commands
 
@@ -38,9 +39,9 @@ Only Forever collects deaths today, so every other client shows "no data yet".
 |---|---|
 | `/ndr` or `/ndr help` | the data line and this list |
 | `/ndr show`, `/ndr hide` | the selected danger view |
-| `/ndr mode perspective`, `/ndr mode radar`, `/ndr mode world` | select Perspective (default), Radar, or the experimental camera-following World view; `mode circle` remains an alias |
+| `/ndr mode perspective`, `/ndr mode radar`, `/ndr mode world` | select Perspective (default), Radar, or World (test), which uses an approximate direction view unless camera sampling is explicitly enabled; `mode circle` remains an alias |
 | `/ndr world start`, `/ndr world stop`, `/ndr world status` | start/resume, stop/release navigation, or print World view status and any captured API error; it never starts automatically after reload |
-| `/ndr world preview` | camera-following preview using a moved and scaled copy of a map outline, clearly marked as a replay; original danger data stays untouched |
+| `/ndr world preview` | preview a moved and scaled copy of a map outline, clearly marked as a replay, using the current World sampling choice; original danger data stays untouched |
 | `/ndr world anchors on`, `/ndr world anchors off` | opt into or stop experimental camera sampling; **off by default** because sampling moves the map/minimap waypoint pin. With it off, World uses an approximate character-heading view without waypoint writes |
 | `/ndr outline 0.5-2`, `/ndr fill 0-2` | independently adjust contour strength and fill opacity; `fill 0` leaves outlines |
 | `/ndr reach 30-300` | perspective range in yards (default 180) |
@@ -287,6 +288,10 @@ NAGDeathData = {
 - **Unknown fields are ignored**, so the server can add fields without an addon update.
 - **"No data yet"** is one state for every unusable file: missing, `NAGDeathData` nil, another `v`, a
   `map` that is not a table or holds no valid cell, or a bad `cellBase`. Nothing errors and nothing ticks.
+- **"No data for this game"**: the file's `flavor` is not the running client's, told as NAG tells it
+  (interface 16000..19999 or a 1.60+ build is Forever, `camelot`; then `vanilla`/`sod`, `tbc`, `wrath`/`titan`,
+  `cata`, `mists`, `mainline`). The file is not loaded: nothing is drawn on the map or the radar. A file
+  without `flavor` (only Forever ever wrote one) draws on Forever only.
 - On a map the file has no cells for, the radar and the world map say **"no data for this map"**.
 
 The settings panel and `/ndr` show the data's date (UTC) and, when the file carries them, its row and

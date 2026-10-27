@@ -7,7 +7,7 @@ local function test(name,f)
     if not ok then failed=failed+1;io.write('FAIL '..name..': '..tostring(why)..'\n') end
 end
 local function boot(opts)
-    opts=opts or {};S.reset({secrets=true})
+    opts=opts or {};S.reset({secrets=true,build=opts.build})
     assert(loadfile('tests/fixtures/nagdeath_base0.lua'))()
     local ns={}
     for _,name in ipairs({'core','options','overlay','radar','perspective-geometry','perspective','world-projection','world-view'}) do
@@ -58,6 +58,16 @@ local function boot(opts)
     local function tick(n,dt)for _=1,n or 16 do S.frame(dt or .009) end end
     return ns,ns.WorldView,nav,tick,runs
 end
+
+test('wrong-game data keeps its note and never acquires navigation in either World mode',function()
+    for _,anchors in ipairs({false,true}) do
+        local ns,w,n,tick=boot({anchors=anchors,build={'2.5.5','65000','',20505}})
+        assert(not ns.data and ns.dataReason=='flavor')
+        SlashCmdList.NAGDEATHRADAR('mode world');tick(2)
+        assert(w.state=='no_data' and w.statusText:GetText()=='no data for this game')
+        assert(n.writes==0 and not w.backup and not w.armed and not ns.Perspective.fallback)
+    end
+end)
 
 test('mode is opt-in and a saved world choice does not start navigation',function()
     local ns,w,n=boot();assert(n.writes==0)

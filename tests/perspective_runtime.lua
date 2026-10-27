@@ -6,8 +6,8 @@ local function test(name,f)
     local ok,err=pcall(f)
     if not ok then failed=failed+1; io.write('FAIL '..name..': '..tostring(err)..'\n') end
 end
-local function boot(noData)
-    S.reset({secrets=true})
+local function boot(noData,build)
+    S.reset({secrets=true,build=build})
     if not noData then assert(loadfile('tests/fixtures/nagdeath_base0.lua'))() end
     local ns={}
     for _,name in ipairs({'core','options','overlay','radar','perspective-geometry','perspective'}) do
@@ -23,6 +23,21 @@ local function boot(noData)
     ns.Apply()
     return ns,ns.Perspective,runs
 end
+test('perspective keeps the wrong-game note through refresh, context changes and preview exit',function()
+    local ns,p=boot(false,{'2.5.5','65000','',20505})
+    assert(not ns.data and ns.dataReason=='flavor' and p.state=='no_data')
+    assert(p.statusText:GetText()=='no data for this game')
+    ns.Apply();S.fire('PLAYER_ENTERING_WORLD')
+    assert(p.statusText:GetText()=='no data for this game' and S.liveUpdates()==0)
+    p.SetPreview(true);assert(p.preview and p.state=='ok')
+    p.SetPreview(false)
+    assert(p.state=='no_data' and p.statusText:GetText()=='no data for this game')
+    assert(S.liveUpdates()==0)
+end)
+test('perspective accepts matching Forever data after the flavor integration',function()
+    local ns,p=boot(false,{'1.60.1','70450','',16001})
+    assert(ns.data and p.state=='ok' and p.frame:IsShown())
+end)
 test('perspective replaces circle with two visible regions',function()
     local ns,p=boot()
     assert(NAGDeathRadarSettings.mode=='perspective' and not ns.RadarFrame:IsShown())

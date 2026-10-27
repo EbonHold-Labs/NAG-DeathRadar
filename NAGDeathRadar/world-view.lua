@@ -110,7 +110,8 @@ local function note(reason)
     W.state=reason
     if status then
         local approximate=ns.Perspective and ns.Perspective.fallback
-        status:SetText(W.IsSelected() and not approximate and (MESSAGES[reason] or '') or '')
+        local message=reason=='no_data' and ns.NoDataText() or MESSAGES[reason] or ''
+        status:SetText(W.IsSelected() and not approximate and message or '')
         caption:SetText(W.IsSelected() and not approximate and W.armed and reason~='empty'
             and captionText() or '')
     end

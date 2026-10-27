@@ -236,7 +236,7 @@ function P.Paint(knownMap,knownView)
     if not enabled() then return note('disabled') end
     if suspended then return note('suspended') end
     checkHold()
-    if not ns.data and not P.preview then return note('no_data',ns.NO_DATA) end
+    if not ns.data and not P.preview then return note('no_data',ns.NoDataText()) end
     local map,v=knownMap,knownView
     if not map then map,v=context() end
     if not map then return note('no_position','No position or heading here') end

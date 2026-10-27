@@ -154,6 +154,72 @@ test("fixtures from the server's to_lua: cells in range for their base, q 1..100
     eq(readFixture("nagdeath_base0.lua").cellBase, 0); eq(readFixture("nagdeath_base1.lua").cellBase, nil)
 end)
 
+-- Clients by GetBuildInfo (version, build, date, interface), as each reports itself.
+local FOREVER = { "1.60.1", "70450", "Oct 1 2026", 16001 }
+local TBC = { "2.5.5", "65000", "Oct 1 2026", 20505 }
+
+test("flavor: each client is named as NAG names it, without NAG", function()
+    local cases = {
+        { { "1.15.7", "61000", "", 11507 }, false, "vanilla" },
+        { { "1.15.7", "61000", "", 11507 }, true, "sod" },
+        { FOREVER, true, "camelot" },
+        { { "1.60.1", "70450", "", 0 }, false, "camelot" },
+        { TBC, false, "tbc" },
+        { { "3.4.4", "60000", "", 30404 }, false, "wrath" },
+        { { "3.80.0", "60000", "", 38000 }, false, "titan" },
+        { { "4.4.2", "60000", "", 40402 }, false, "cata" },
+        { { "5.5.0", "60000", "", 50500 }, false, "mists" },
+        { { "11.2.5", "60000", "", 110205 }, false, "mainline" },
+    }
+    for _, c in ipairs(cases) do
+        local ns = boot(false, { build = c[1], engraving = c[2] })
+        eq(ns.ClientFlavor(), c[3], ("%s %s%s"):format(c[1][1], tostring(c[1][4]), c[2] and " +engraving" or ""))
+    end
+    local ns = boot(false)
+    eq(ns.ClientFlavor(), nil, "no GetBuildInfo: the client cannot be told")
+end)
+
+test("flavor: data from another game is refused everywhere, 'no data for this game'", function()
+    local ns = boot("nagdeath_base0.lua", { build = TBC })
+    eq(ns.data, nil, "camelot data on a TBC client is not loaded")
+    eq(ns.dataReason, "flavor")
+    eq(ns.StatusLine(), "no data for this game")
+    -- R.Refresh's own note (the one shown at load and after any settings change), before Paint can overwrite it.
+    local f = ns.RadarFrame
+    eq(f.note:GetText(), "no data for this game", "the radar's note at load")
+    f.note:SetText(nil)
+    ns.Radar.Refresh(NAGDeathRadarSettings)
+    eq(f.note:GetText(), "no data for this game", "the radar's note after a Refresh")
+    S.mapID = ELWYNN
+    WorldMapFrame:OnMapChanged()
+    eq(ns.OverlayCount(), 0, "the map draws nothing")
+    eq(ns.OverlayNote(), "NAG Death Radar: no data for this game")
+    S.worldBounds[ELWYNN] = ELWYNN_BOUNDS
+    S.player.map, S.player.x, S.player.y = ELWYNN, 0.42, 0.66
+    eq(ns.Radar.Paint(), "no data for this game", "the radar draws nothing and says so")
+end)
+
+test("flavor: data from this game draws", function()
+    local ns = boot("nagdeath_base0.lua", { build = FOREVER })
+    assert(ns.data, "camelot data on Forever: " .. tostring(ns.dataReason))
+    S.mapID = ELWYNN
+    WorldMapFrame:OnMapChanged()
+    assert(ns.OverlayCount() > 0, "the map draws")
+    assert(ns.StatusLine():find("death data from", 1, true), "the status line has the data")
+end)
+
+test("flavor: a file without a flavor field draws on Forever only", function()
+    local raw = readFixture("nagdeath_base0.lua")
+    raw.flavor = nil
+    local ns = boot(raw, { build = FOREVER })
+    assert(ns.data, "no flavor field on Forever: drawn (only Forever has ever collected)")
+    raw = readFixture("nagdeath_base0.lua")
+    raw.flavor = nil
+    ns = boot(raw, { build = TBC })
+    eq(ns.data, nil, "no flavor field elsewhere: refused")
+    eq(ns.StatusLine(), "no data for this game")
+end)
+
 test("cell base: the 0-based and the 1-based fixture land on the same cells", function()
     local ns = boot(false)
     local d0 = assert(ns.LoadData(readFixture("nagdeath_base0.lua")))

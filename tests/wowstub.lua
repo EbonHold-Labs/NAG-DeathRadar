@@ -242,6 +242,15 @@ function S.reset(opts)
     S.canvas = canvas
     _G.WorldMapFrame = W
 
+    -- opts.build = { version, build, date, interface }: GetBuildInfo's answer (none: the client cannot be told);
+    -- opts.engraving = true: C_Engraving.IsEngravingEnabled() answers true (Season of Discovery).
+    if opts.build then
+        local b = opts.build
+        _G.GetBuildInfo = function() return b[1], b[2], b[3], b[4] end
+    else
+        _G.GetBuildInfo = nil
+    end
+    _G.C_Engraving = opts.engraving and { IsEngravingEnabled = function() return true end } or nil
     _G.C_Map = {
         GetBestMapForUnit = function() return S.player.map end,
         GetPlayerMapPosition = function()

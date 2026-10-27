@@ -227,7 +227,7 @@ function O.Redraw(force)
     lastMap = map
     hideAll()
     if not s.overlay then return say(nil) end
-    if not ns.data then return say(ns.NO_DATA) end
+    if not ns.data then return say(ns.NoDataText()) end
     local runs, n = O.Picture(map, s)
     if not runs then return say(ns.NO_MAP_DATA) end
     say(nil)
