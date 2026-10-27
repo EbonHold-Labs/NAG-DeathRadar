@@ -92,16 +92,20 @@ end)
 
 -- ============================ data ============================
 
-test("the shipped data file is a placeholder: it defines no global", function()
+test("the shipped data file is data only: it defines NAGDeathData alone, a v = 1 table with its flavor", function()
     local env = {}
     local chunk = assert(loadfile(ADDON .. DATA_FILE))
     setfenv(chunk, env)
     chunk()
-    eq(next(env), nil, "no global")
+    local d = env.NAGDeathData
+    env.NAGDeathData = nil
+    eq(next(env), nil, "no other global")
+    eq(type(d), "table", "NAGDeathData")
+    eq(d.v, 1, "v"); eq(type(d.flavor), "string", "flavor"); eq(type(d.map), "table", "map")
 end)
 
 local NO_DATA_STATES = {
-    { "missing file (the placeholder)", nil },
+    { "an older install's placeholder (it defines nothing)", "nagdeath_placeholder.lua" },
     { "nil global", false },
     { "wrong v", { v = 2, map = { [ELWYNN] = { [1] = { [1] = 50 } } } } },
     { "map = {}", { v = 1, map = {} } },
@@ -201,6 +205,15 @@ test("flavor: data from this game draws", function()
     WorldMapFrame:OnMapChanged()
     assert(ns.OverlayCount() > 0, "the map draws")
     assert(ns.StatusLine():find("death data from", 1, true), "the status line has the data")
+end)
+
+test("the shipped snapshot draws on its own game and says 'no data for this game' on the others", function()
+    local ns = boot(nil, { build = FOREVER })
+    assert(ns.data, "the shipped file on Forever: " .. tostring(ns.dataReason))
+    assert(ns.StatusLine():find("death data from", 1, true), "the status line has the data")
+    ns = boot(nil, { build = TBC })
+    eq(ns.data, nil, "the shipped camelot file on a TBC client")
+    eq(ns.StatusLine(), "no data for this game")
 end)
 
 test("flavor: a file without a flavor field draws on Forever only", function()
