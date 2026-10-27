@@ -10,9 +10,10 @@ local S = {}
 
 local PROBED = { CreateMaskTexture = true, GetCanvas = true, GetCanvasContainer = true, GetCanvasZoomPercent = true,
     GetScaleForMinZoom = true, GetScaleForMaxZoom = true, WorldMapTrackingOptionsButton = true,
-    GetPinFrameLevelsManager = true, OnMapChanged = true, OnCanvasScaleChanged = true }
+    GetPinFrameLevelsManager = true, OnMapChanged = true, OnCanvasScaleChanged = true,
+    CreateLine = true, SetVertexOffset = true }
 
-local REGION, FRAME, CHECK, BUTTON, SLIDER, TEXTURE, MASK, FONT, TOOLTIP = {}, {}, {}, {}, {}, {}, {}, {}, {}
+local REGION, FRAME, CHECK, BUTTON, SLIDER, TEXTURE, MASK, FONT, TOOLTIP, EDIT, SCROLL, LINE = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
 
 local function new(kind, parent)
     local o = { _kind = kind, _shown = true, _scripts = {}, _parent = parent, _w = nil, _h = nil }
@@ -38,6 +39,7 @@ function REGION:ClearAllPoints() self._point, self._points = nil, nil end
 function REGION:SetAllPoints(rel) self._point = { "ALL", rel } end
 function REGION:SetSize(w, h) self._w, self._h = w, h end
 function REGION:SetWidth(w) self._w = w end
+function REGION:SetHeight(h) self._h = h end
 function REGION:GetWidth() return self._w or (self._point and self._point[1] == "ALL" and self._point[2] and self._point[2]:GetWidth()) or 1000 end
 function REGION:GetHeight() return self._h or (self._point and self._point[1] == "ALL" and self._point[2] and self._point[2]:GetHeight()) or 700 end
 function REGION:Show() self._shown = true end
@@ -64,12 +66,16 @@ function FRAME:RegisterEvent(e)
     table.insert(S.events[e], self)
 end
 function FRAME:CreateTexture(_, layer) local t = new(TEXTURE, self); t._layer = layer; return t end
+function FRAME:CreateLine(_, layer) local l = new(LINE, self); l._layer = layer; return l end
 function FRAME:CreateMaskTexture() return new(MASK, self) end
 function FRAME:CreateFontString() return new(FONT, self) end
 function FRAME:SetFrameLevel(l) self._level = l end
+function FRAME:SetFrameStrata(s) self._strata = s end
 function FRAME:GetFrameLevel() return self._level or 1 end
 function FRAME:SetScale(s) self._scale = s end
 function FRAME:GetScale() return self._scale or 1 end
+function FRAME:GetEffectiveScale() return self._scale or 1 end
+function FRAME:IsForbidden() return self._forbidden or false end
 function FRAME:GetCenter() return self._cx or 500, self._cy or 350 end
 function FRAME:SetClampedToScreen() end
 function FRAME:SetMovable(v) self._movable = v end
@@ -77,7 +83,26 @@ function FRAME:EnableMouse(v) self._mouse = v and true or false end
 function FRAME:RegisterForDrag() end
 function FRAME:StartMoving() self._moving = true end
 function FRAME:StopMovingOrSizing() self._moving = false end
-for k, v in pairs(FRAME) do CHECK[k] = v; BUTTON[k] = v; SLIDER[k] = v end
+for k, v in pairs(FRAME) do CHECK[k] = v; BUTTON[k] = v; SLIDER[k] = v; EDIT[k] = v; SCROLL[k] = v end
+function SCROLL:SetScrollChild(child) self._child = child end
+function SCROLL:SetVerticalScroll(y) self._scroll = y end
+function EDIT:SetMultiLine(v) self._multiline = v end
+function EDIT:SetAutoFocus(v) self._autoFocus = v end
+function EDIT:SetMaxLetters(n) self._maxLetters = n end
+function EDIT:SetFontObject(font) self._font = font end
+function EDIT:SetText(t) self._text = t end
+function EDIT:GetText() return self._text end
+function EDIT:GetNumLines()
+    local count = 0
+    for line in ((self._text or "") .. "\n"):gmatch("([^\n]*)\n") do
+        count = count + math.max(1, math.ceil(#line / math.max(1, math.floor(self:GetWidth() / 8))))
+    end
+    return count
+end
+function EDIT:SetCursorPosition(p) self._cursor = p end
+function EDIT:SetFocus() self._focus = true end
+function EDIT:ClearFocus() self._focus = false end
+function EDIT:HighlightText() self._selected = true end
 function SLIDER:SetMinMaxValues(lo, hi) self._min, self._max = lo, hi end
 function SLIDER:SetValueStep(v) self._step = v end
 function SLIDER:SetObeyStepOnDrag(v) self._obey = v end
@@ -98,6 +123,11 @@ function CHECK:GetChecked() return self._checked end
 function TEXTURE:SetTexture(path) self._texture = path end
 function TEXTURE:SetColorTexture(r, g, b, a) self._color = { r, g, b, a } end
 function TEXTURE:SetVertexColor(r, g, b, a) self._vertex = { r, g, b, a } end
+function TEXTURE:SetVertexOffset(i,x,y) self._vertices=self._vertices or {}; self._vertices[i]={x,y} end
+function LINE:SetStartPoint(...) self._start={...} end
+function LINE:SetEndPoint(...) self._end={...} end
+function LINE:SetThickness(v) self._thickness=v end
+function LINE:SetColorTexture(r,g,b,a) self._color={r,g,b,a} end
 function TEXTURE:AddMaskTexture(m) self._masks = (self._masks or 0) + 1; self._mask = m end
 function TEXTURE:SetSnapToPixelGrid(v) self._snap = v end
 function TEXTURE:SetTexelSnappingBias(v) self._texelBias = v end
@@ -106,6 +136,7 @@ function MASK:SetTexture(path) self._texture = path end
 -- Font strings.
 function FONT:SetText(t) self._text = t end
 function FONT:GetText() return self._text end
+function FONT:SetJustifyH(v) self._justify = v end
 function FONT:SetIgnoreParentAlpha(v) self._ownAlpha = v end
 
 -- The game tooltip.
@@ -115,7 +146,7 @@ function TOOLTIP:GetOwner() return self._owner end
 function TOOLTIP:IsOwned(f) return self._owner == f end
 
 
-S.KINDS = { REGION = REGION, FRAME = FRAME, TEXTURE = TEXTURE, FONT = FONT }
+S.KINDS = { REGION = REGION, FRAME = FRAME, TEXTURE = TEXTURE, FONT = FONT, LINE = LINE }
 
 local function vector(x, y)
     return { x = x, y = y, GetXY = function(self) return self.x, self.y end }
@@ -132,6 +163,13 @@ function S.reset(opts)
     S.mapID, S.zoom, S.worldBounds, S.worldSize = 0, 1, {}, {}
     S.minScale, S.maxScale = 0.5, 2 -- the open map's zoom scales; equal on a map that cannot zoom
     S.player = { map = nil, x = nil, y = nil, facing = 0, alt = false, combat = false }
+    S.keys, S.bindings, S.keyboardFocus = {}, {}, nil
+    _G.NAGDeathRadar_SetDetail = nil
+    _G.GetBindingKey = function(action) return unpack(S.bindings[action] or {}) end
+    _G.IsKeyDown = function(key) return S.keys[key] == true end
+    _G.IsShiftKeyDown = function() return S.keys.SHIFT == true end
+    _G.IsControlKeyDown = function() return S.keys.CTRL == true end
+    _G.GetCurrentKeyBoardFocus = function() return S.keyboardFocus end
     S.panels, S.opened = {}, {}
     S.sliderTemplate = opts.sliderTemplate ~= false -- false: a client without UISliderTemplateWithLabels
     -- opts.menu: the Menu API (Menu.ModifyMenu, MenuUtil.CreateCheckbox); S.modified records each ModifyMenu.
@@ -145,7 +183,7 @@ function S.reset(opts)
         _G.Menu, _G.MenuUtil = nil, nil
     end
 
-    _G.NAGDeathData, _G.NAGDeathRadarSettings, _G.NAGDeathRadarMapLayer = nil, nil, nil
+    _G.NAGDeathData, _G.NAGDeathRadarSettings, _G.NAGDeathRadarMapLayer, _G.NAGDeathRadarProbe = nil, nil, nil, nil
     _G.UIParent = new(FRAME)
     _G.GameTooltip = new(TOOLTIP)
     _G.GameTooltip._shown, _G.GameTooltip._lines = false, {}
@@ -162,7 +200,8 @@ function S.reset(opts)
             S.lastTemplate = template
             return sl
         end
-        local o = new(kind == "CheckButton" and CHECK or kind == "Button" and BUTTON or FRAME, parent)
+        local kinds = { CheckButton = CHECK, Button = BUTTON, EditBox = EDIT, ScrollFrame = SCROLL }
+        local o = new(kinds[kind] or FRAME, parent)
         o._template, o._name = template, name
         if name then _G[name] = o end -- as the client does: a named frame is a global
         return o

@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="NAGDEATHRADAR_DETAIL" header="NAGDEATHRADAR" runOnUp="true">
+        if NAGDeathRadar_SetDetail then NAGDeathRadar_SetDetail(keystate == "down") end
+    </Binding>
+</Bindings>

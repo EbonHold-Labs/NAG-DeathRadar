@@ -4,6 +4,24 @@ From the plan note's §3 (in game), plus everything the headless tests cannot sh
 first, then on one Classic-line client. Enable script errors first: `/console scriptErrors 1`. Note the
 client build and anything odd.
 
+## 0. First perspective version (Forever)
+
+- [ ] Restart the client once to discover the new Lua files and Bindings.xml; confirm the addon version is the local perspective build.
+- [ ] `/ndr mode perspective`: the old circle is absent. Journey need not be enabled.
+- [ ] `/ndr preview on`: the view is clearly labelled synthetic; `/ndr preview off` returns to live data without changing the data file or world-map picture.
+- [ ] With the camera behind the character, walk toward and around multiple areas. Turn the character: forward/left/right remain consistent. Gaps and holes stay open; no line closes a region at the 180-yard view edge.
+- [ ] Open the world map: the perspective areas agree with its red regions, including after `/ndr threshold 0.4` and while browsing another map.
+- [ ] Stand inside an area larger than the view: a quiet near-player tint and inside status remain even when no boundary is visible.
+- [ ] Outside all areas with none ahead: no geometry or idle heading line remains. Missing data/map/position instead shows its explicit status and never stale shapes.
+- [ ] Bind Hold danger-view details in WoW Key Bindings > NAG Death Radar. Hold: stronger contours/fill and approximate boundary distance. Release, rebind, open chat or leave/reenter the client: detail must not stick.
+- [ ] `/ndr options`: adjust reach, width, height, size and offsets; verify `/reload` preserves them. All clicks through the drawing still reach the world.
+- [ ] Hold Alt: a highlighted move field appears, including when no areas are visible or data is absent. Alt + left-drag moves the view; release Alt while dragging and verify movement stops and mouse clicks pass through. Test again at size 1.5 and confirm placement survives `/reload`. Switching modes or losing control while dragging must stop the move.
+- [ ] `/ndr front` (or `/ndr ground`): the field extends upwards from 60 UI units above screen centre, in front of/above the character, with height 160 and no centre heading line. Fine-tune with Alt-drag. Custom placement survives `/reload`; old default offsets, including the centre and below-feet presets, migrate only once.
+- [ ] During combat, rendering continues while coordinates are available; hidden/secret coordinates clear it without Lua errors or blocked actions.
+- [ ] Dense real area at `/ndr reach 300`: check movement/turning remains responsive. Report build, map and symptoms if it does not.
+- [ ] Rotate/pitch only the camera: confirm the known illustration limitation rather than accepting this as terrain/camera-anchored geometry.
+- [ ] `/ndr options` offers explicit Perspective and Radar buttons with the current choice marked. `/ndr mode radar` (also `mode circle`) restores the original radar; `/ndr mode perspective` returns to the perspective view. Switching from either entry point updates the other and survives `/reload`. `/ndr probe` still works.
+
 To try with data before the app drops the real file: copy `tests/fixtures/nagdeath_base0.lua` over
 `NAGDeathRadar/Data/NAGDeathData.lua` and `/reload`. It has cells on Elwynn Forest (1429) and Durotar
 (1411) only, so try it on a character in one of those zones. `tests/fixtures/nagdeath_fine.lua` is the same
@@ -107,3 +125,70 @@ deaths with the server's `fine` field (200 per side): swap it in to see the map 
 - [ ] The addon sends no chat or addon messages.
 - [ ] CPU stays small while walking (profiling on:
       `/run UpdateAddOnCPUUsage() print(GetAddOnCPUUsage("NAGDeathRadar"))`).
+
+## 8. Experimental World view (0.3.0-dev8)
+- [x] Stress Test 70532: World (test), Perspective and Radar selected through settings; World preview/stop/status exercised through commands. Dev7 loaded after `/reload`.
+- [ ] `/ndr world preview` is clearly marked as a moved/scaled replay, with faint fill and readable contours.
+- [x] Stress Test 70532: camera yaw/pitch changed the replay's screen position; some angles hid it and a flatter angle recovered it. The outline was extremely shallow. Reliable alignment remains unproven.
+- [ ] Hold the details binding: contours strengthen; release it: they return to normal.
+- [ ] `/ndr world stop` removes the temporary waypoint and restores the previous quest target.
+- [ ] Change to a different waypoint/quest while World runs: it pauses and preserves the new target.
+- [ ] Starting World with an existing user waypoint leaves it untouched and explains the pause.
+- [x] Stress Test 70532: `/reload` with World selected reported stopped, accepted 0/0, tracking released; no temporary minimap waypoint appeared.
+- [ ] Test near actual red regions while moving; compare boundaries and holes with the map. Replay is not this proof.
+- [ ] Enter combat: sampling pauses; deferred navigation restoration finishes after combat, without automatic resume.
+- [ ] Check slopes, water, bridges, buildings and low frame rates; terrain height and occlusion remain unverified.
+- [x] Stress Test 70532: a new character with nil quest/type starts after the dev7 fix. Stop restored waypoint=nil, quest=nil, user=false, type=nil. Restoration of an actual tracked quest remains unchecked above.
+- [x] Lua 5.1 and LuaJIT: 179 checks passed per engine, including malformed tracking rejection, nil-quest restoration, captured error diagnostics, and persistent replay warning during recalibration.
+
+Dev8 follow-up:
+- [x] Lua 5.1 and LuaJIT: 187 checks pass per engine, including delayed native projection, diagonal-only visibility, shallow-plane rejection, early rejection accounting, and a recorded native batch regression.
+- [ ] Fresh native test: two-update settling still follows camera changes and releases navigation correctly.
+- [ ] Rotate the camera independently of character heading, including diagonal views; check recovery.
+- [ ] A nearly edge-on reference plane hides the drawing and requests a downward camera tilt; no inflated shapes.
+- [ ] `/ndr world status` includes early rejections while repeatedly losing calibration and while moving.
+
+2026-10-22: fresh native test blocked. Reconnect returned WOW51900308 and requested
+login. Battle.net Play was disabled with "This game cannot be played yet" and
+"Available November 4, 2026"; Stress Test was absent from its version list.
+Dev8 source and manifests match both installed junctions. Blocker evidence is local
+in `../artifacts/world-dev8-20261022/`; this is not dev8 runtime validation.
+
+Client evidence from 2026-10-21 is kept locally in `../artifacts/stress-client-dev6-20261021/`.
+NAG 5.6.41-beta10, NAGJourney 1.0.2 and NAGDeathRadar loaded together. The real map
+heatmap rendered in Mulgore; Radar reported the nearest danger at 392 yd, outside the
+180 yd view range. A single brief movement key tap is not a running/boundary test.
+Replay screenshots do not validate actual danger locations, terrain heights or combat behavior.
+
+Dev9 audit, 2026-10-22 (Forever Beta):
+- [x] Dev8 startup failure reproduced with existing quest 1505. The client's waypoint switch returned quest=nil; the old ownership guard paused and left an empty user-tracking flag.
+- [x] Dev9 loaded in the client. Replay starts from that same tracked-quest state; stop returns quest=1505, user=false, waypoint=nil.
+- [x] An external change to quest 772 pauses the view, removes its own waypoint and preserves quest=772, user=false.
+- [x] Lua 5.1 and LuaJIT: 197 checks pass per engine. Includes native quest clearing, partial tracking-setter failures, throttled restoration, simulated 60 FPS running, retained drift limits and replay containment/gaps.
+- [x] Short local movement at verified 60 FPS: contour hid during movement and returned after stopping. Status recorded attempts=700, accepted=675, rejected=24 (clamped=21, drift=2, holdout=1), accepted while moving=0. Most accepted batches were stationary; this fails continuous running validation.
+- [ ] Replace or compensate sequential camera sampling and repeat the moving test before calling this a usable world risk view.
+- [ ] Replay inside indicator is covered automatically; verify it in the native client without treating replay as actual danger data.
+- [ ] Actual danger boundaries, terrain height, slopes, occlusion and combat remain unvalidated for dev9.
+
+Audit evidence is local in `../artifacts/world-dev9-audit-20261022/`.
+
+Dev10 motion compensation, 2026-10-22 (Forever Beta):
+- [x] Independent source-coordinate fit compensates per-sample player translation; two spatial holdouts and the repeated anchor remain outside fitting with four UI pixel limits.
+- [x] Lua 5.1 and LuaJIT: 200 checks pass per engine, including sideways/diagonal running, large raw drift, end-position reprojection, source degeneracy and rejected camera drift.
+- [x] Final source loaded in Beta at observed 60 FPS. Short local run: attempts=421, accepted=418, rejected=2 (holdout), accepted while moving=9, maximum raw moving drift=15.1 px, maximum compensated residual=0.6 px. One attempt was in progress; the overall 4.3 accepted/s includes stationary time.
+- [x] A copied real map outline stays recognisable as the player approaches it. Entry into the earlier dev10 replay showed the explicitly labelled inside indicator.
+- [x] Replay stopped and temporary user waypoint released. Test FPS settings restored to their previous values.
+- [ ] Validate sustained movement with camera turns, actual risk boundaries, slopes, terrain height, occlusion, combat and low frame rates. Earlier dev10 footage still showed a brief hide during camera adjustment at movement start.
+
+Evidence: `../artifacts/world-dev10-motion-20261022/`. The preview is a moved/scaled copy of real map geometry, not actual danger at the test location.
+
+Dev11 direction fallback and quiet map, 2026-10-22:
+- [x] Normal World mode defaults to `worldAnchors=false`. Regression tests assert zero navigation reads/writes even with an existing user pin and throwing navigation getters.
+- [x] Camera sampling requires an explicit settings/slash opt-in that warns about moving map/minimap pins. Switching it off releases the temporary pin and retains the direction view.
+- [x] Clamped/invalid/shallow samples and collapsed projected fills select the labelled approximate view using the exact same geometry, including moved replay shapes.
+- [x] Combat and external navigation takeover keep a read-only direction view without automatically restarting sampling; explicit stop/mode/hide clear it.
+- [x] Direction view follows movement at up to 60 FPS and reuses stationary geometry. Camera projections translate between validated batches, with a 350 ms maximum age.
+- [x] Separate finite, bounded contour/fill controls. Lua 5.1 and LuaJIT each passed 211 checks before the native test.
+- [x] Native dev11 reload and quiet replay: status recorded zero sampling attempts, waypoint sampling off and no user waypoint. Map/minimap inspection showed no experimental pin. The copied replay outline and all new settings controls were visible. Replay was stopped before returning to normal data.
+- [ ] Native preservation of an existing user pin in quiet mode remains untested; zero-navigation behavior with an existing pin is covered automatically.
+- [ ] Native combat, sustained running, actual boundary alignment and terrain height remain separate checks. This change does not solve the elevation difference in the user's screenshots.

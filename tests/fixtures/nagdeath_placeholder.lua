@@ -1,0 +1,2 @@
+-- Test copy of the packaged empty-data contract. The live-linked data file may
+-- be replaced by NAG Helper while tests run; never overwrite that runtime file.

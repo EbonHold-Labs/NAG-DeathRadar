@@ -199,6 +199,19 @@ function O.Source(map, s)
     return upCache.grid, ns.FINE_GRID
 end
 
+--- One cached picture for both the world map and perspective: same red runs,
+--- including the texture-cap folding. Does not require an open map window.
+function O.Picture(map, s)
+    local src, from = O.Source(map, s)
+    if not src then return nil end
+    local key = exact(s.hot) .. ":" .. exact(s.thrMid) .. ":" .. exact(s.thrLow) .. ":" .. exact(s.mapAlpha) .. ":" .. O.CAP
+    if runCache.src ~= src or runCache.key ~= key then
+        runCache.src, runCache.key = src, key
+        runCache.runs, runCache.n = ns.CappedRuns(src, from, ns.FINE_GRID, O.CAP, s)
+    end
+    return runCache.runs, runCache.n
+end
+
 --- Pixel snapping off, where the client has the calls: a square's edges stay where they are set.
 local function noSnap(t)
     if type(t.SetSnapToPixelGrid) == "function" then t:SetSnapToPixelGrid(false) end
@@ -215,15 +228,9 @@ function O.Redraw(force)
     hideAll()
     if not s.overlay then return say(nil) end
     if not ns.data then return say(ns.NO_DATA) end
-    local src, from = O.Source(map, s)
-    if not src then return say(ns.NO_MAP_DATA) end
+    local runs, n = O.Picture(map, s)
+    if not runs then return say(ns.NO_MAP_DATA) end
     say(nil)
-    local key = exact(s.hot) .. ":" .. exact(s.thrMid) .. ":" .. exact(s.thrLow) .. ":" .. exact(s.mapAlpha) .. ":" .. O.CAP
-    if runCache.src ~= src or runCache.key ~= key then
-        runCache.src, runCache.key = src, key
-        runCache.runs, runCache.n = ns.CappedRuns(src, from, ns.FINE_GRID, O.CAP, s)
-    end
-    local runs, n = runCache.runs, runCache.n
     local cw, ch = layer:GetWidth() / n, layer:GetHeight() / n
     -- ns.MapColor's ramp, red where the radar calls a cell hot. Both corners come from
     -- one edge formula, k * cw and k * ch, so a run ends exactly where its neighbour starts.

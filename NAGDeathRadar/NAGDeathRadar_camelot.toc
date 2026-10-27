@@ -5,7 +5,7 @@
 ## Author: Rakizi, Fonsas (NAG)
 ## Group: NAG
 ## Category: Next Action Guides
-## Version: 0.2.0
+## Version: 0.3.0-dev11
 ## SavedVariables: NAGDeathRadarSettings
 
 Data\NAGDeathData.lua
@@ -13,3 +13,7 @@ core.lua
 options.lua
 overlay.lua
 radar.lua
+perspective-geometry.lua
+perspective.lua
+world-projection.lua
+world-view.lua

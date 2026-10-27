@@ -425,7 +425,7 @@ end
 function R.UpdateMouse()
     if not frame or R.dragging then return end
     local s = NAGDeathRadarSettings
-    local want = s.radar and altDown() or false
+    local want = s.radar and s.mode == "circle" and altDown() or false
     if want ~= R.mouse then
         R.mouse = want
         frame:EnableMouse(want)
@@ -583,8 +583,9 @@ function R.Refresh(s)
     placeFrame(s)
     R.ApplyLook(s)
     hotKey = nil
-    frame:SetShown(s.radar)
-    local run = s.radar and ns.data ~= nil
+    local shown = s.radar and s.mode == "circle"
+    frame:SetShown(shown)
+    local run = shown and ns.data ~= nil
     frame:SetScript("OnUpdate", run and onUpdate or nil)
     if not ns.data then
         note(ns.NO_DATA) -- full alpha: nothing to dim for, the note is the whole radar
