@@ -12,19 +12,36 @@ local type, ipairs, pairs, pcall = type, ipairs, pairs, pcall
 
 local TITLE = "NAG Death Radar"
 local BOXES = {
-    { "radar", "Show the radar" },
+    { "radar", "Show the danger view" },
     { "overlay", "Heatmap on the world map" },
-    { "locked", "Lock the radar (unlocked: Alt + drag moves it)" },
-    { "rimTint", "Tint the radar's rim red while you stand in a hot zone" },
-    { "art", "Show the ring and grid art (off: a plain ring)" },
+    { "locked", "Lock the circle (unlocked: Alt + drag moves it)" },
+    { "rimTint", "Highlight when inside a danger area" },
+    { "art", "Circle mode: show ring and grid art" },
+    { "worldAnchors", "Experimental camera projection (moves map pins)" },
 }
 -- Buttons that step through a setting's choices (no dropdown: its template differs between clients).
 local CYCLES = {
     { "ring", "Ring" },
     { "grid", "Grid", { [1] = "green", [2] = "blue" } },
 }
+local VIEW_MODES = { { "perspective", "Perspective" }, { "circle", "Radar" }, { "world", "World (test)" } }
 
 local ALPHA_STEPS = { 0.4, 0.6, 0.8, 1 }
+local VIEW_CONTROLS = {
+    { key = "reach", label = "View range (yd)", step = 10 },
+    { key = "viewWidth", label = "View width", step = 20 },
+    { key = "viewHeight", label = "View height", step = 10 },
+    { key = "viewScale", label = "View size", step = 0.05 },
+    { key = "viewX", label = "Horizontal offset", step = 20 },
+    { key = "viewY", label = "Vertical offset", step = 20 },
+    { key = "viewOutline", label = "Contour strength", step = 0.1 },
+    { key = "viewFill", label = "Fill strength", step = 0.1 },
+}
+
+local function viewLabel(it, value)
+    local fractional=it.key=="viewScale" or it.key=="viewOutline" or it.key=="viewFill"
+    return it.label .. ": " .. (fractional and ("%.2f"):format(value) or ("%.0f"):format(value))
+end
 
 --- The map opacity step after `cur`, wrapping round (the panel's button where the client has no slider).
 function ns.NextStep(cur)
@@ -64,6 +81,19 @@ function ns.RefreshPanel()
         panel.mapAlphaStep:SetText(pct)
     end
     panel.status:SetText(ns.StatusLine())
+    for _, it in ipairs(VIEW_MODES) do
+        panel.modeButtons[it[1]]:SetText((s.mode == it[1] and "[x] " or "[ ] ") .. it[2])
+    end
+    for _, it in ipairs(VIEW_CONTROLS) do
+        local slider = panel.viewSliders[it.key]
+        local button = panel.viewSteps[it.key]
+        if slider then
+            settingSlider = true
+            slider:SetValue(s[it.key])
+            settingSlider = false
+            slider.Text:SetText(viewLabel(it, s[it.key]))
+        elseif button then button:SetText(viewLabel(it, s[it.key])) end
+    end
 end
 
 function ns.BuildPanel()
@@ -76,6 +106,7 @@ function ns.BuildPanel()
     local status = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     status:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -42)
     panel.status = status
+    panel.viewSliders, panel.viewSteps = {}, {}
     panel.boxes = {}
     for i, it in ipairs(BOXES) do
         local key = it[1]
@@ -134,12 +165,70 @@ function ns.BuildPanel()
         end)
         panel.mapAlphaStep = b
     end
-    local y = rowY - 40
-    for _, line in ipairs(ns.HELP) do
+    local modeLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    modeLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, rowY - 28)
+    modeLabel:SetText("Visualization")
+    panel.modeButtons = {}
+    for i, it in ipairs(VIEW_MODES) do
+        local mode = it[1]
+        local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        button:SetSize(104, 22)
+        button:SetPoint("TOPLEFT", panel, "TOPLEFT", 20 + (i - 1) * 108, rowY - 46)
+        button:SetScript("OnClick", function()
+            NAGDeathRadarSettings.mode = mode
+            ns.Apply()
+            if mode=='world' and ns.WorldView then ns.WorldView.Start() end
+        end)
+        panel.modeButtons[mode] = button
+    end
+    for i, it in ipairs(VIEW_CONTROLS) do
+        local key, bounds = it.key, ns.RANGES[it.key]
+        local ok, slider = pcall(CreateFrame, "Slider", nil, panel, "UISliderTemplateWithLabels")
+        if ok and type(slider) == "table" and slider.Text then
+            slider:SetSize(200, 17)
+            slider:SetPoint("TOPLEFT", panel, "TOPLEFT", 370, -82 - (i - 1) * 54)
+            slider:SetMinMaxValues(bounds[1], bounds[2])
+            slider:SetValueStep(it.step)
+            if type(slider.SetObeyStepOnDrag) == "function" then slider:SetObeyStepOnDrag(true) end
+            if slider.Low then slider.Low:SetText(tostring(bounds[1])) end
+            if slider.High then slider.High:SetText(tostring(bounds[2])) end
+            slider:SetScript("OnValueChanged", function(_, v, userInput)
+                if settingSlider or userInput == false or ns.IsSecret(v) or type(v) ~= "number" or v ~= v then return end
+                v = math.floor(v / it.step + 0.5) * it.step
+                if v < bounds[1] or v > bounds[2] or v == NAGDeathRadarSettings[key] then return end
+                NAGDeathRadarSettings[key] = v
+                ns.Apply()
+            end)
+            panel.viewSliders[key] = slider
+        else
+            local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+            button:SetSize(220, 22)
+            button:SetPoint("TOPLEFT", panel, "TOPLEFT", 360, -72 - (i - 1) * 48)
+            button:SetScript("OnClick", function()
+                local v = NAGDeathRadarSettings[key] + it.step
+                NAGDeathRadarSettings[key] = v > bounds[2] and bounds[1] or v
+                ns.Apply()
+            end)
+            panel.viewSteps[key] = button
+        end
+    end
+    local y = rowY - 80
+    for _, line in ipairs({
+        "Direction views are approximate and follow character heading, without moving waypoints.",
+        "Hold Alt and left-drag the highlighted field to move the view.",
+        "Assign Hold danger-view details in WoW Key Bindings > NAG Death Radar.",
+        "Hold that key for stronger contours and approximate boundary distance.",
+        "/ndr preview on: synthetic test areas; /ndr preview off: live data.",
+        "Camera projection is opt-in: it moves map pins and has unverified terrain height.",
+        "An approximate direction view takes over during camera loss or combat. Alt-drag moves it.",
+    }) do
         local t = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         t:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, y)
+        t:SetWidth(320)
+        t:SetHeight(28)
+        t:SetJustifyH("LEFT")
         t:SetText(line)
-        y = y - 18
+        y = y - 32
     end
     panel:SetScript("OnShow", ns.RefreshPanel)
 
@@ -172,4 +261,58 @@ end
 --- For the tests: how the panel was registered.
 function ns.PanelRegistration()
     return registeredWith
+end
+
+-- A snapshot on demand, with ordinary EditBox selection/copy. No saved report,
+-- timer, waypoint changes or camera changes. Reopening takes a fresh snapshot.
+local probeWindow
+function ns.OpenProjectionProbe()
+    if ns.InCombat() then return ns.Say("the probe opens out of combat") end
+    local report = ns.ProjectionReport()
+    if not probeWindow then
+        local f = CreateFrame("Frame", "NAGDeathRadarProbe", UIParent)
+        f:SetSize(640, 480)
+        f:SetPoint("CENTER", UIParent, "CENTER")
+        f:SetFrameStrata("DIALOG")
+        f:SetClampedToScreen(true)
+        f:EnableMouse(true)
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(f)
+        bg:SetColorTexture(0.035, 0.035, 0.045, 0.98)
+        local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -14)
+        title:SetText("NAG Death Radar: projection probe")
+        local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -38)
+        hint:SetText("Ctrl+A, Ctrl+C to copy the full report. Paste it into Codex. Esc closes this window.")
+        local scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -64)
+        scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -36, 48)
+        local edit = CreateFrame("EditBox", nil, scroll)
+        edit:SetMultiLine(true)
+        edit:SetAutoFocus(false)
+        edit:SetMaxLetters(0)
+        edit:SetFontObject(GameFontHighlightSmall)
+        edit:SetWidth(580)
+        edit:SetScript("OnEscapePressed", function() f:Hide() end)
+        scroll:SetScrollChild(edit)
+        local close = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        close:SetSize(100, 24)
+        close:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 12)
+        close:SetText("Close")
+        close:SetScript("OnClick", function() f:Hide() end)
+        f:SetScript("OnHide", function() edit:ClearFocus() end)
+        f.edit, f.scroll = edit, scroll
+        probeWindow = f
+    end
+    local _, breaks = report:gsub("\n", "")
+    probeWindow.edit:SetHeight((breaks + 2) * 16)
+    probeWindow.edit:SetText(report)
+    probeWindow:Show()
+    -- Include wrapped lines, not only explicit newlines, in the scroll extent.
+    probeWindow.edit:SetHeight(math.max(breaks + 2, probeWindow.edit:GetNumLines() + 2) * 16)
+    probeWindow.scroll:SetVerticalScroll(0)
+    probeWindow.edit:SetCursorPosition(0)
+    probeWindow.edit:SetFocus()
+    probeWindow.edit:HighlightText()
 end

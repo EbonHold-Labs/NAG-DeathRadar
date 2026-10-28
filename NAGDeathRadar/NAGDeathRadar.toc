@@ -14,3 +14,7 @@ core.lua
 options.lua
 overlay.lua
 radar.lua
+perspective-geometry.lua
+perspective.lua
+world-projection.lua
+world-view.lua

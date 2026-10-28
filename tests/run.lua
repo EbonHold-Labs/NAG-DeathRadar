@@ -38,7 +38,7 @@ local FILES = tocLines("NAGDeathRadar.toc")
 local DATA_FILE = "Data/NAGDeathData.lua"
 
 --- Load the addon as the client would: toc order, (addonName, ns) varargs, then the load events.
---- data: nil = the shipped placeholder; a string = a fixture file in its place; a table (or false for nil) = the
+--- data: nil = the shipped snapshot; a string = a fixture file in its place; a table (or false for nil) = the
 --- global set as it is, no data file read.
 local function boot(data, opts)
     S.reset(opts)
@@ -52,6 +52,9 @@ local function boot(data, opts)
     end
     if opts and opts.saved then NAGDeathRadarSettings = opts.saved end
     S.fire("ADDON_LOADED", "NAGDeathRadar")
+    -- Existing circle regression scenarios keep their original view explicitly;
+    -- production defaults and new perspective tests use the new mode separately.
+    if not (opts and opts.perspective) then NAGDeathRadarSettings.mode = "circle" end
     S.fire("PLAYER_LOGIN")
     return ns
 end
@@ -99,6 +102,14 @@ test("strict stub: an unknown widget method raises, a probed one reads nil", fun
 end)
 
 -- ============================ data ============================
+
+test("an older install's placeholder defines no global (isolated from Helper's live data)", function()
+    local env = {}
+    local chunk = assert(loadfile(FIXTURES .. "nagdeath_placeholder.lua"))
+    setfenv(chunk, env)
+    chunk()
+    eq(next(env), nil, "no global")
+end)
 
 test("the shipped data file is data only: it defines NAGDeathData alone, a v = 1 table with its flavor", function()
     -- Every global the file reads raises, and every assignment is recorded, nil ones too: a second statement
@@ -1468,6 +1479,241 @@ test("panel: without the slider template, a step button sets the map opacity", f
     eq(b:GetText(), "Map opacity: 40%")
     b._scripts.OnClick(b)
     eq(NAGDeathRadarSettings.mapAlpha, 0.6)
+end)
+
+-- ============================ read-only projection report ============================
+
+-- Restore diagnostic globals even when an assertion fails, so one case cannot
+-- change the environment seen by another case.
+local function withGlobals(entries, fn)
+    local saved = {}
+    for i, entry in ipairs(entries) do saved[i] = _G[entry[1]]; _G[entry[1]] = entry[2] end
+    local ok, err = pcall(fn)
+    for i, entry in ipairs(entries) do _G[entry[1]] = saved[i] end
+    if not ok then error(err, 0) end
+end
+
+test("probe: reports missing candidates and tolerates throwing client getters and lookups", function()
+    local ns = boot(false)
+    withGlobals({
+        { "WorldToScreen" }, { "GetBuildInfo", function() return "1.60.1", "70450", "Oct 16 2026", 16001 end },
+        { "WorldFrame", setmetatable({}, { __index = function() error("unavailable") end }) },
+        { "C_Navigation", { GetFrame = function() error("no navigation here") end,
+            GetDistance = function() return nil end } },
+    }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("GetBuildInfo => 1.60.1, 70450, Oct 16 2026, 16001", 1, true))
+        assert(report:find("WorldToScreen = nil", 1, true))
+        assert(report:find("WorldFrame.Project3DPointTo2D = lookup-error", 1, true))
+        assert(report:find("C_Navigation.GetFrame => <call-error>", 1, true))
+        assert(report:find("C_Navigation.GetDistance => nil", 1, true))
+        assert(report:find("END NDR PROBE", 1, true))
+    end)
+end)
+
+test("probe: secrets are never serialized or called, including a failing secret checker", function()
+    local ns = boot(false)
+    local secret = setmetatable({}, { __tostring = function() error("secret serialized") end })
+    withGlobals({
+        { "issecretvalue", function(v) return rawequal(v, secret) end },
+        { "WorldToScreen", secret },
+        { "GetCameraZoom", function() return secret end },
+    }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("WorldToScreen = secret", 1, true))
+        assert(report:find("GetCameraZoom => <secret>", 1, true))
+        _G.issecretvalue = function() error("secret checker unavailable") end
+        report = ns.ProjectionReport()
+        assert(report:find("secret-check-error", 1, true))
+        assert(report:find("END NDR PROBE", 1, true))
+    end)
+end)
+
+test("probe: slash opens a selected scrollable snapshot, refreshes it, and changes no settings", function()
+    local ns = boot(false)
+    local calls, version = 0, "first"
+    local function forbidden() calls = calls + 1; error("must not be called") end
+    withGlobals({
+        { "GetBuildInfo", function() return version, "70450" end },
+        { "WorldToScreen", forbidden }, { "GetCameraPosition", forbidden },
+        { "C_Commentator", { SetCamera = forbidden, SetCameraPosition = forbidden,
+            SetMode = forbidden, EnterInstance = forbidden, StartWargame = forbidden } },
+        { "C_Map", { SetUserWaypoint = forbidden, ClearUserWaypoint = forbidden } },
+        { "C_SuperTrack", { SetSuperTrackedUserWaypoint = forbidden, ClearAllSuperTracked = forbidden } },
+    }, function()
+        local settings = NAGDeathRadarSettings
+        local beforeUpdates = S.liveUpdates()
+        ns.Apply = forbidden
+        SlashCmdList.NAGDEATHRADAR("probe")
+        local f = assert(_G.NAGDeathRadarProbe)
+        assert(f:IsShown()); assert(f.edit._multiline); eq(f.edit._autoFocus, false)
+        assert(f.edit._focus and f.edit._selected, "ready to copy")
+        eq(f.scroll._child, f.edit); eq(f.scroll._scroll, 0)
+        assert(f.edit:GetText():find("GetBuildInfo => first, 70450", 1, true))
+        eq(settings, NAGDeathRadarSettings); eq(settings.radar, true); eq(settings.hot, 0.25)
+        version = "second"
+        SlashCmdList.NAGDEATHRADAR("probe")
+        eq(_G.NAGDeathRadarProbe, f, "window reused")
+        assert(f.edit:GetText():find("GetBuildInfo => second, 70450", 1, true), "fresh report")
+        eq(S.liveUpdates(), beforeUpdates, "no diagnostic ticker")
+        f.edit._scripts.OnEscapePressed()
+        assert(not f:IsShown())
+        -- The stub does not fire OnHide implicitly; exercise the real client's callback.
+        f._scripts.OnHide()
+        eq(f.edit._focus, false)
+        eq(calls, 0, "no unknown calls, setters, spectator activation or Apply")
+    end)
+end)
+
+test("probe: combat does not create a copy window", function()
+    boot(false)
+    S.player.combat = true
+    SlashCmdList.NAGDEATHRADAR("probe")
+    eq(_G.NAGDeathRadarProbe, nil)
+    assert(S.prints[#S.prints]:find("out of combat", 1, true))
+end)
+
+test("probe v2: commentator camera reads run while not spectating and label every returned value", function()
+    local ns = boot(false)
+    local cameraCalls, positionCalls = 0, 0
+    withGlobals({ { "C_Commentator", {
+        IsSpectating = function() return false end,
+        GetCamera = function() cameraCalls = cameraCalls + 1; return 10, 20, 30, 0.4, 0.5, 0.6, 90 end,
+        GetCameraPosition = function() positionCalls = positionCalls + 1; return 10, 20, 30 end,
+    } } }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("projection probe v3", 1, true))
+        assert(report:find("C_Commentator.IsSpectating => false", 1, true))
+        assert(report:find("C_Commentator.GetCamera (x, y, z, yaw, pitch, roll, fov) => 10, 20, 30, 0.4, 0.5, 0.6, 90", 1, true))
+        assert(report:find("C_Commentator.GetCameraPosition (x, y, z) => 10, 20, 30", 1, true))
+        eq(cameraCalls, 1); eq(positionCalls, 1)
+    end)
+end)
+
+test("probe v2: commentator restrictions, missing APIs, nils and no returns do not abort the report", function()
+    local ns = boot(false)
+    withGlobals({ { "C_Commentator", {
+        IsSpectating = function() error("restricted") end,
+        GetCamera = function() error("requires active commentator") end,
+        GetCameraPosition = function() return nil, nil, nil end,
+    } } }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("C_Commentator.IsSpectating => <call-error>", 1, true))
+        assert(report:find("C_Commentator.GetCamera (x, y, z, yaw, pitch, roll, fov) => <call-error>", 1, true))
+        assert(report:find("C_Commentator.GetCameraPosition (x, y, z) => nil, nil, nil", 1, true))
+        assert(report:find("END NDR PROBE", 1, true))
+        _G.C_Commentator.GetCamera = function() end
+        report = ns.ProjectionReport()
+        assert(report:find("C_Commentator.GetCamera (x, y, z, yaw, pitch, roll, fov) => <no returns>", 1, true))
+        _G.C_Commentator = nil
+        report = ns.ProjectionReport()
+        assert(report:find("C_Commentator.GetCamera (x, y, z, yaw, pitch, roll, fov) => <nil>", 1, true))
+    end)
+end)
+
+test("probe v2: commentator secret outputs cannot escape serialization and zeros remain visible", function()
+    local ns = boot(false)
+    local secret = setmetatable({}, { __tostring = function() error("secret serialized") end })
+    withGlobals({
+        { "issecretvalue", function(v) return rawequal(v, secret) end },
+        { "C_Commentator", {
+            IsSpectating = function() return secret end,
+            GetCamera = function() return 0, 0, 0, secret, nil, 0, 0 end,
+            GetCameraPosition = function() return secret, secret, secret end,
+        } },
+    }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("C_Commentator.IsSpectating => <secret>", 1, true))
+        assert(report:find("C_Commentator.GetCamera (x, y, z, yaw, pitch, roll, fov) => 0, 0, 0, <secret>, nil, 0, 0", 1, true))
+        assert(report:find("C_Commentator.GetCameraPosition (x, y, z) => <secret>, <secret>, <secret>", 1, true))
+        assert(report:find("zero-filled output does not prove", 1, true))
+    end)
+end)
+
+test("probe v3: existing navigation geometry uses receiver and preserves clamped state", function()
+    local ns = boot(false)
+    local frame = {}
+    frame.IsForbidden = function(self) eq(self, frame); return false end
+    frame.GetCenter = function(self) eq(self, frame); return 222, 333 end
+    frame.GetRect = function(self) eq(self, frame); return 220, 330, 4, 6 end
+    frame.GetEffectiveScale = function() return .75 end
+    withGlobals({ { "C_Navigation", {
+        GetFrame = function() return frame end,
+        GetTargetState = function() return 0 end,
+        HasValidScreenPosition = function() return true end,
+        WasClampedToScreen = function() return true end,
+    } }, { "C_UI", { GetWorldFrame = function() return WorldFrame end } },
+        { "UnitPosition", function(token) eq(token == "player" or token == "target", true); return 10, 20, 30, 1 end },
+    }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("Navigation frame.GetCenter => 222, 333", 1, true))
+        assert(report:find("Navigation frame.GetEffectiveScale => 0.75", 1, true))
+        assert(report:find("C_Navigation.WasClampedToScreen => true", 1, true))
+        assert(report:find("Clamped points are not world anchors", 1, true))
+        assert(report:find("UnitPosition(player) (x, y, z, instanceID) => 10, 20, 30, 1", 1, true))
+    end)
+end)
+
+test("probe v3: forbidden or failed access checks never read frame geometry", function()
+    local ns = boot(false)
+    local reads = 0
+    local frame = { IsForbidden = function() return true end,
+        GetCenter = function() reads = reads + 1; error("must not read") end }
+    withGlobals({ { "C_Navigation", { GetFrame = function() return frame end } } }, function()
+        assert(ns.ProjectionReport():find("geometry skipped", 1, true))
+        frame.IsForbidden = function() error("restricted") end
+        assert(ns.ProjectionReport():find("END NDR PROBE", 1, true))
+        eq(reads, 0)
+    end)
+end)
+
+test("probe v3: secret frame results and unit existence are never used as anchors", function()
+    local ns = boot(false)
+    local secret = setmetatable({}, { __index = function() error("secret read") end,
+        __tostring = function() error("secret serialized") end })
+    local plateCalls = 0
+    withGlobals({ { "issecretvalue", function(v) return rawequal(v, secret) end },
+        { "C_Navigation", { GetFrame = function() return secret end } },
+        { "C_UI", { GetWorldFrame = function() return secret end } },
+        { "UnitExists", function() return secret end },
+        { "C_NamePlate", { GetNamePlateForUnit = function() plateCalls = plateCalls + 1 end } },
+    }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("C_Navigation.GetFrame => <secret>", 1, true))
+        assert(report:find("Nameplate units sampled => 0", 1, true))
+        assert(report:find("END NDR PROBE", 1, true))
+        eq(plateCalls, 0)
+    end)
+end)
+
+test("probe v3: nameplate sampling is bounded and nil world coordinates remain explicit", function()
+    local ns = boot(false)
+    local calls = 0
+    local plate = { IsForbidden = function() return false end, GetCenter = function() return 123, 456 end }
+    withGlobals({ { "UnitExists", function(token) return token:match("^nameplate%d+$") ~= nil end },
+        { "C_NamePlate", { GetNamePlateForUnit = function(token, forbidden)
+            eq(forbidden, false); calls = calls + 1; return plate
+        end } }, { "UnitPosition", function() return nil end },
+    }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("nameplate1.GetCenter => 123, 456", 1, true))
+        assert(report:find("UnitPosition(nameplate1) (x, y, z, instanceID) => nil", 1, true))
+        assert(report:find("Nameplate units sampled => 8", 1, true))
+        eq(calls, 8)
+        assert(not report:find("nameplate9 frame", 1, true))
+    end)
+end)
+
+test("probe v3: runtime enum and plain waypoint coordinates are reported without assumed mixins", function()
+    local ns = boot(false)
+    withGlobals({ { "Enum", { NavigationState = { Invalid = 3, Occluded = 1, InRange = 0, Disabled = 2 } } },
+        { "C_Map", { GetUserWaypoint = function() return { uiMapID = 1412, position = { x = .4, y = .5 } } end } },
+    }, function()
+        local report = ns.ProjectionReport()
+        assert(report:find("Runtime Enum.NavigationState.InRange => 0", 1, true))
+        assert(report:find("User waypoint normalized x => 0.4", 1, true))
+        assert(report:find("User waypoint normalized y => 0.5", 1, true))
+    end)
 end)
 
 out(("%d passed, %d failed"):format(pass, fail))
