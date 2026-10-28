@@ -33,7 +33,8 @@ deaths with the server's `fine` field (200 per side): swap it in to see the map 
 - [ ] No Lua error on login, `/reload` or a zone change.
 
 ## 2. No data yet
-- [ ] With the shipped placeholder `Data/NAGDeathData.lua`: the radar's centre says "no data yet"; the
+- [ ] With `tests/fixtures/nagdeath_placeholder.lua` (the placeholder of releases before 0.3.0) over
+      `Data/NAGDeathData.lua`, `/reload`: the radar's centre says "no data yet"; the
       world map says "NAG Death Radar: no data yet" at its bottom; `/ndr` says "no data yet".
 - [ ] Delete `Data/NAGDeathData.lua`, `/reload`: the same, no error.
 - [ ] Put `NAGDeathData = { v = 2, map = {} }` in the file, `/reload`: the same.

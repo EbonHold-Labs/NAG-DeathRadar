@@ -1,10 +1,12 @@
 ## Interface: 11509, 20506, 38000, 38002, 50504
 ## Title: NAG Death Radar
-## Notes: Where players died while levelling: a heatmap on the world map and a radar that points to the nearest danger zone. Reads the data the NAG app drops in; no network.
+## Notes: Where players died while levelling: a heatmap on the world map and a radar that points to the nearest danger zone. Ships the published data of its release day; the NAG app keeps it fresh. No network.
 ## Author: Rakizi, Fonsas (NAG)
 ## Group: NAG
 ## Category: Next Action Guides
-## Version: 0.3.0-dev12
+## IconTexture: Interface\AddOns\NAGDeathRadar\Media\NAGDeathRadarIcon.png
+## X-Part-Of: NAG
+## Version: 0.3.0
 ## SavedVariables: NAGDeathRadarSettings
 
 Data\NAGDeathData.lua

@@ -1,2 +1,2 @@
--- Test copy of the packaged empty-data contract. The live-linked data file may
--- be replaced by NAG Helper while tests run; never overwrite that runtime file.
+-- NAG Death Radar data: no data yet. This placeholder defines nothing, so the addon shows "no data yet".
+-- The NAG app replaces this file with the published death heatmap (global NAGDeathData) for your game flavour.
