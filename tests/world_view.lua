@@ -303,6 +303,44 @@ test('failed restoration is throttled and its cause is available in status',func
     n.restoreFail=false;tick(40)
     assert(not w.backup and n.quest==99411 and not n.user)
 end)
+
+for _,position in ipairs({'missing','valid','empty'}) do
+test('fallback restoration stays throttled with '..position..' position',function()
+    local ns,w,n,tick=boot();SlashCmdList.NAGDEATHRADAR('world preview');tick(24)
+    local tries,elapsed,lastTry,tooSoon=0,0,nil,false
+    local setter=C_SuperTrack.SetSuperTrackedQuestID
+    C_SuperTrack.SetSuperTrackedQuestID=function(id)
+        tries=tries+1
+        tooSoon=tooSoon or (lastTry~=nil and elapsed-lastTry<.25-1e-8)
+        lastTry=elapsed
+        return setter(id)
+    end
+    n.restoreFail=true;S.player.x=nil;tick(1,1/60)
+    assert(tries==1 and w.active and not w.armed and w.backup and not n.point)
+    local backup=w.backup
+    if position~='missing' then S.player.x=position=='empty' and .95 or .5 end
+    for i=1,60 do
+        elapsed=elapsed+1/60;tick(1,1/60)
+        assert(w.active and not w.armed and w.backup==backup)
+        assert(not w.navigationChange,'stopped sampler reported its own cleared pin as a takeover')
+        if i<=14 then assert(tries==1,'fallback bypassed the restore delay') end
+    end
+    assert(tries>=4 and tries<=5,'expected periodic retries, got '..tries)
+    assert(not tooSoon,'restore retried before 250 ms')
+    if position=='empty' then assert(w.state=='empty') end
+    assert(w.Status():find('restore error',1,true))
+    n.restoreFail=false;S.player.x=.5
+    for _=1,30 do elapsed=elapsed+1/60;tick(1,1/60) end
+    assert(not w.backup and not n.point and not n.user and n.quest==99411)
+    assert(w.active and not w.armed and not w.lastRestoreError)
+    assert(not tooSoon,'recovery bypassed the restore delay')
+    assert(ns.Perspective.frame:IsShown() and ns.Perspective.fallback)
+    local writes,restores=n.writes,tries
+    tick(60,1/60)
+    assert(n.writes==writes and tries==restores and not w.armed,'restoration must not restart sampling')
+end)
+end
+
 test('a new quest during a deferred restoration is preserved',function()
     local _,w,n,tick=boot();SlashCmdList.NAGDEATHRADAR('world preview');tick(24)
     n.restoreFail=true;SlashCmdList.NAGDEATHRADAR('world stop')

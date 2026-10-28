@@ -128,7 +128,8 @@ function W.Stop(reason,keepFallback)
     W.pauseReason=W.active and reason or nil
     if not W.active then W.replay=nil;W.sourceGeometry=nil end
     fallback(W.active)
-    local ok=tryRelease()
+    -- Repeated fallback pauses must leave an already scheduled retry to step().
+    local ok=not W.backup or (not W.restorePoll and tryRelease())
     note(ok and (reason or 'stopped') or 'restoring');ticker()
 end
 local function checkOwner(s)
@@ -225,7 +226,8 @@ local function begin(v)
     local mesh,why=G.Near(p,v,NAGDeathRadarSettings.reach)
     if not mesh then W.Stop(why);return end
     if mesh.empty then
-        if W.backup then tryRelease() end
+        -- Paused fallback restoration is retried by step(), even outside danger.
+        if W.backup and W.armed then tryRelease() end
         hide();W.pose=nil;fallback(false);note('empty');W.poll=.15;return
     end
     W.sourceGeometry,W.sessionMap=p,v.map
@@ -302,7 +304,7 @@ local function step(dt)
     local v=context()
     if not v then W.Stop('no_position',true);return end
     if W.sessionMap and v.map~=W.sessionMap then W.Stop('control');return end
-    if W.ours and not checkOwner(snapshot()) then return end
+    if W.armed and W.ours and not checkOwner(snapshot()) then return end
     if W.pose then
         local pose=W.pose
         pose.age=pose.age+dt;W.drawElapsed=(W.drawElapsed or 0)+dt
