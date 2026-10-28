@@ -28,7 +28,7 @@ end
 local function tocLines(name)
     local files, meta = {}, {}
     for line in io.lines(ADDON .. name) do
-        local k, v = line:match("^## ([%w]+): (.*)$")
+        local k, v = line:match("^## ([%w%-]+): (.*)$")
         if k then meta[k] = v
         elseif line:match("%S") and not line:match("^#") then files[#files + 1] = (line:gsub("\\", "/")) end
     end
@@ -79,6 +79,14 @@ test("tocs: the same files; main covers the Classic line, _camelot is Forever on
     eq(mm.Interface, "11509, 20506, 38000, 38002, 50504", "main interfaces")
     eq(mm.SavedVariables, "NAGDeathRadarSettings"); eq(cm.SavedVariables, "NAGDeathRadarSettings")
     eq(cm.Interface, "16001"); eq(cm.AllowLoadGameType, "camelot")
+    -- The addon-list icon and the NAG grouping (Addon Control Panel reads X-Part-Of): the same in both, and the
+    -- icon is a file the addon ships.
+    local ICON = "Interface\\AddOns\\NAGDeathRadar\\Media\\NAGDeathRadarIcon.png"
+    for _, m in ipairs({ mm, cm }) do
+        eq(m.IconTexture, ICON, "IconTexture"); eq(m["X-Part-Of"], "NAG", "X-Part-Of")
+    end
+    local icon = io.open(ADDON .. "Media/NAGDeathRadarIcon.png", "rb")
+    assert(icon and icon:read(8) == "\137PNG\r\n\26\n", "the icon is a PNG in Media/"); icon:close()
 end)
 
 test("strict stub: an unknown widget method raises, a probed one reads nil", function()
@@ -92,16 +100,38 @@ end)
 
 -- ============================ data ============================
 
-test("the shipped data file is a placeholder: it defines no global", function()
-    local env = {}
+test("the shipped data file is data only: it defines NAGDeathData alone, a v = 1 table with its flavor", function()
+    -- Every global the file reads raises, and every assignment is recorded, nil ones too: a second statement
+    -- (`next = v` would clear the game's `next` for every addon) cannot pass for data.
+    local assigned, values = {}, {}
+    local env = setmetatable({}, {
+        __index = function(_, k) error("the data file reads a global: " .. tostring(k), 2) end,
+        __newindex = function(_, k, val) assigned[#assigned + 1] = k; values[k] = val end,
+    })
     local chunk = assert(loadfile(ADDON .. DATA_FILE))
     setfenv(chunk, env)
     chunk()
-    eq(next(env), nil, "no global")
+    eq(table.concat(assigned, ","), "NAGDeathData", "the one assignment")
+    local d = values.NAGDeathData
+    eq(type(d), "table", "NAGDeathData")
+    eq(d.v, 1, "v"); eq(type(d.flavor), "string", "flavor"); eq(type(d.map), "table", "map")
+    -- Code behind an `if` never runs here: outside its strings the text is only braces, brackets, "=", ",", numbers
+    -- and the export's field names. tools/snapshot_data.py's check (the app's grammar) is the full rule.
+    local fh = assert(io.open(ADDON .. DATA_FILE, "rb")); local text = fh:read("*a"); fh:close()
+    local bare = text:gsub('"[^"\\\r\n]*"', '""')
+    local FIELDS = { NAGDeathData = true, v = true, generated = true, flavor = true, cellBase = true, published = true,
+        ["next"] = true, rows = true, contributors = true, map = true, killers = true, bands = true, instances = true,
+        fine = true, grid = true, levels = true }
+    for name in bare:gmatch("[%a_][%w_]*") do
+        assert(FIELDS[name], "a name that is not an export field: " .. name)
+    end
+    local other = bare:gsub('""', ""):gsub("[%w_%s%[%]{}=,%-%.]", "")
+    eq(other, "", "characters other than data")
+    assert(not bare:find("%.%.", 1), "no concatenation")
 end)
 
 local NO_DATA_STATES = {
-    { "missing file (the placeholder)", nil },
+    { "an older install's placeholder (it defines nothing)", "nagdeath_placeholder.lua" },
     { "nil global", false },
     { "wrong v", { v = 2, map = { [ELWYNN] = { [1] = { [1] = 50 } } } } },
     { "map = {}", { v = 1, map = {} } },
@@ -201,6 +231,15 @@ test("flavor: data from this game draws", function()
     WorldMapFrame:OnMapChanged()
     assert(ns.OverlayCount() > 0, "the map draws")
     assert(ns.StatusLine():find("death data from", 1, true), "the status line has the data")
+end)
+
+test("the shipped snapshot draws on its own game and says 'no data for this game' on the others", function()
+    local ns = boot(nil, { build = FOREVER })
+    assert(ns.data, "the shipped file on Forever: " .. tostring(ns.dataReason))
+    assert(ns.StatusLine():find("death data from", 1, true), "the status line has the data")
+    ns = boot(nil, { build = TBC })
+    eq(ns.data, nil, "the shipped camelot file on a TBC client")
+    eq(ns.StatusLine(), "no data for this game")
 end)
 
 test("flavor: a file without a flavor field draws on Forever only", function()

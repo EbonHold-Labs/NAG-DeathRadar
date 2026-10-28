@@ -13,8 +13,9 @@ levelling:
   stand in a danger zone the radar's rim turns red. Where there is no position (instances) or no data
   for the map, it dims and says so.
 
-It is an empty shell: it only reads one data file, `Data/NAGDeathData.lua`, which the NAG app writes and
-refreshes. The addon itself has no network access, sends no chat or addon messages, embeds no
+It only reads one data file, `Data/NAGDeathData.lua`. A release ships the published data of its day, so a
+copy installed without the NAG app (CurseForge) works from the first login; with the app, the app refreshes
+the file with each newer window. The addon itself has no network access, sends no chat or addon messages, embeds no
 libraries and keeps one SavedVariable, `NAGDeathRadarSettings`, for its settings only.
 
 ## Install
@@ -51,10 +52,21 @@ other client shows "no data for this game" (or "no data yet" when no file is the
 
 ## The data
 
-`Data/NAGDeathData.lua` ships as a placeholder that defines nothing: a fresh install shows **"no data
-yet"** on the radar and on the world map. The NAG app replaces the file with the published export
-(relay 3460, route A, `GET /v1/public/deaths/published/NAGDeathData.lua?flavor=<flavour>`); WoW reads it on
-the next login or `/reload`.
+`Data/NAGDeathData.lua` ships with the published export of the release day (relay 3460, route A,
+`GET /v1/public/deaths/published/NAGDeathData.lua?flavor=<flavour>`). The NAG app replaces the file with
+each newer window; WoW reads it on the next login or `/reload`. A file that defines nothing (the
+placeholder of releases before 0.3.0) shows **"no data yet"** on the radar and on the world map.
+
+Before a release, write the day's file and commit it with the version bump:
+
+```
+python3 -I tools/snapshot_data.py            # --flavor camelot by default; a flavour with no window exits 1
+```
+
+It reads meta.json, then the Lua by the sha256 meta names, and writes the file only when the two agree and
+the file is one table literal and nothing else (`tools/lua_literal.py`, the NAG app's own check). One
+file serves every client and only Forever collects, so the release carries Forever's data; the other clients
+show "no data for this game".
 
 ```lua
 NAGDeathData = {
@@ -138,6 +150,7 @@ The in-game checks are in [CHECKLIST.md](CHECKLIST.md).
 CC BY-NC 4.0, the same as Next Action Guide; see [LICENSE](LICENSE). The radar's geometry and drawing
 helpers come from NAG's Shaman totem radar. The ring and grid art (`Media/frame1.png`, `frame2.png`,
 `frame8.png`, `frame10.png`, `radarGrids1.png`, `radarGrids2.png`) are Fonsas's own, from his
-FonsasDeathRadar. Nothing is taken from Deathlog or DeathNotificationLib.
+FonsasDeathRadar. The addon-list icon (`Media/NAGDeathRadarIcon.png`, 128 x 128) is made from `frame1.png`,
+`radarGrids1.png` and NAG's logo. Nothing is taken from Deathlog or DeathNotificationLib.
 
 The addon is free.
