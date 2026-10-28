@@ -28,7 +28,7 @@ end
 local function tocLines(name)
     local files, meta = {}, {}
     for line in io.lines(ADDON .. name) do
-        local k, v = line:match("^## ([%w]+): (.*)$")
+        local k, v = line:match("^## ([%w%-]+): (.*)$")
         if k then meta[k] = v
         elseif line:match("%S") and not line:match("^#") then files[#files + 1] = (line:gsub("\\", "/")) end
     end
@@ -79,6 +79,14 @@ test("tocs: the same files; main covers the Classic line, _camelot is Forever on
     eq(mm.Interface, "11509, 20506, 38000, 38002, 50504", "main interfaces")
     eq(mm.SavedVariables, "NAGDeathRadarSettings"); eq(cm.SavedVariables, "NAGDeathRadarSettings")
     eq(cm.Interface, "16001"); eq(cm.AllowLoadGameType, "camelot")
+    -- The addon-list icon and the NAG grouping (Addon Control Panel reads X-Part-Of): the same in both, and the
+    -- icon is a file the addon ships.
+    local ICON = "Interface\\AddOns\\NAGDeathRadar\\Media\\NAGDeathRadarIcon.png"
+    for _, m in ipairs({ mm, cm }) do
+        eq(m.IconTexture, ICON, "IconTexture"); eq(m["X-Part-Of"], "NAG", "X-Part-Of")
+    end
+    local icon = io.open(ADDON .. "Media/NAGDeathRadarIcon.png", "rb")
+    assert(icon and icon:read(8) == "\137PNG\r\n\26\n", "the icon is a PNG in Media/"); icon:close()
 end)
 
 test("strict stub: an unknown widget method raises, a probed one reads nil", function()

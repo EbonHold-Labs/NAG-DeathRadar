@@ -5,6 +5,8 @@
 ## Author: Rakizi, Fonsas (NAG)
 ## Group: NAG
 ## Category: Next Action Guides
+## IconTexture: Interface\AddOns\NAGDeathRadar\Media\NAGDeathRadarIcon.png
+## X-Part-Of: NAG
 ## Version: 0.3.0
 ## SavedVariables: NAGDeathRadarSettings
 

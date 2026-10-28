@@ -150,6 +150,7 @@ The in-game checks are in [CHECKLIST.md](CHECKLIST.md).
 CC BY-NC 4.0, the same as Next Action Guide; see [LICENSE](LICENSE). The radar's geometry and drawing
 helpers come from NAG's Shaman totem radar. The ring and grid art (`Media/frame1.png`, `frame2.png`,
 `frame8.png`, `frame10.png`, `radarGrids1.png`, `radarGrids2.png`) are Fonsas's own, from his
-FonsasDeathRadar. Nothing is taken from Deathlog or DeathNotificationLib.
+FonsasDeathRadar. The addon-list icon (`Media/NAGDeathRadarIcon.png`, 128 x 128) is made from `frame1.png`,
+`radarGrids1.png` and NAG's logo. Nothing is taken from Deathlog or DeathNotificationLib.
 
 The addon is free.
