@@ -1663,6 +1663,31 @@ test("radar: unified, no distance line on the totem radar's dock icons while uni
         :format(top, top + 12, lo, hi))
 end)
 
+test("radar: after unify off the free radar's frame level is its own again", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 50, 50)
+    local before = f:GetFrameLevel()
+    local totem = totemModule(5)
+    SlashCmdList.NAGDEATHRADAR("unify")
+    eq(f:GetFrameLevel(), totem:GetFrameLevel() + 1, "docked: one over the totem radar")
+    SlashCmdList.NAGDEATHRADAR("unify off"); _G.NAG = nil
+    eq(f:GetFrameLevel(), before, "free: the pre-dock level")
+end)
+
+test("radar: on the minimap the distance line shows (only the unified ring hides it)", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 6, hy)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    eq(ns.Radar.Paint(), "ok")
+    assert((f.dist:GetText() or "") ~= "", "a hot cell: the line has a distance")
+    eq(f.dist:IsShown(), true, "shown on the minimap")
+    SlashCmdList.NAGDEATHRADAR("minimap off"); _G.Minimap = nil
+end)
+
 local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
