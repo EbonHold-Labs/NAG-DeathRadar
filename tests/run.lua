@@ -1553,6 +1553,56 @@ test("radar: unified, the ring is the totem radar's 40 yd; free or with the tote
     _G.NAG = nil
 end)
 
+test("radar: unified, Paint collects only what the 40 yd ring can show", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 1, hy)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function() return module end }
+    local function farthest()
+        eq(R.Paint(), "ok")
+        local n, far = R.BlipCount(), 0
+        for i = 1, n do
+            local e = R.Blip(i)
+            if e.tex:IsShown() then
+                local x, y = e.tex._point[4] or 0, e.tex._point[5] or 0
+                far = math.max(far, math.sqrt(x * x + y * y))
+            end
+        end
+        return n, far
+    end
+    local nFree, farFree = farthest()
+    SlashCmdList.NAGDEATHRADAR("unify")
+    local nUni, farUni = farthest()
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG = nil
+    assert(nFree > 0, "free: blips to compare")
+    assert(farUni <= R.RADIUS * 1.2, ("unified: a blip %.1f px out, the rim is %d px (cells collected on the wrong range)")
+        :format(farUni, R.RADIUS))
+    assert(nUni <= nFree, ("unified collected %d cells, free (100 yd) %d"):format(nUni, nFree))
+end)
+
+test("radar: a totem module's bad YARDS falls back to 40 and raises nothing", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function() return module end }
+    for _, bad in ipairs({ "50", 0, -5, true, {} }) do
+        module.YARDS = bad
+        local ok, err = pcall(function()
+            SlashCmdList.NAGDEATHRADAR("unify"); S.frame(0.2); R.Paint()
+        end)
+        assert(ok, "YARDS " .. tostring(bad) .. " raised " .. tostring(err))
+        eq(R.Yards(), 40, "YARDS " .. tostring(bad) .. ": the 40 default")
+        SlashCmdList.NAGDEATHRADAR("unify off")
+    end
+    _G.NAG = nil
+end)
+
 local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
