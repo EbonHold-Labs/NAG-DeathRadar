@@ -40,6 +40,9 @@ deaths with the server's `fine` field (200 per side): swap it in to see the map 
       sits on the rim; free, the same cell sits at 40 % of the radius); drag or resize the totem radar, or put it on
       the minimap: the death radar follows. Hide the totem radar (`/nagtotem off`): the death radar stands on its
       own with its own ring; `/nagtotem on`: it joins again.
+- [ ] Unified: the death cells draw over the totem radar's field and under its dock icons; no "danger NN yd"
+      line under the ring; without Alt the totem radar keeps its clicks and drag. Hide the minimap (another addon):
+      a minimap-docked radar stands free on the screen until the minimap shows again.
 - [ ] Without the client's context menu (no MenuUtil), Alt + right-click opens the settings panel instead.
 - [ ] `/ndr minimap`, `/ndr unify` toggle the same; the choice survives `/reload`.
 

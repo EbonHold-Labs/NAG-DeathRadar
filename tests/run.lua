@@ -1603,6 +1603,66 @@ test("radar: a totem module's bad YARDS falls back to 40 and raises nothing", fu
     _G.NAG = nil
 end)
 
+-- The totem radar's geometry (NAG/camelot/etn1.lua, develop) for the docking tests below (red review, #8).
+local T_RADIUS, T_BORDER, T_BACK = 44, 3, 26
+
+local function totemModule(level)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88); totem:SetScale(0.85)
+    if level then totem:SetFrameLevel(level) end
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function(_, name, silent)
+        if name == "CamelotTotemRadar" then return module end
+        if not silent then error("Cannot find module " .. tostring(name)) end
+    end }
+    return totem, module
+end
+
+test("radar: unified, it is one level over the totem radar frame in its strata (draw + Alt-click order defined)", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 50, 50)
+    local totem = totemModule(5) -- a UIParent child of NAG's: its own level; the radar never sets one
+    SlashCmdList.NAGDEATHRADAR("unify")
+    local fl, tl = f:GetFrameLevel(), totem:GetFrameLevel()
+    local fs, ts = f._strata, totem:GetFrameStrata()
+    SlashCmdList.NAGDEATHRADAR("unify off"); _G.NAG = nil
+    assert(fl == tl + 1 and fs == ts, ("docked on the totem radar: radar level %d strata %s, totem level %d strata %s"
+        .. " (same strata, no explicit level: which frame draws on top and takes the Alt+right-click is undefined)")
+        :format(fl, tostring(fs), tl, tostring(ts)))
+end)
+
+test("radar: the minimap hidden: the docked radar is not drawn over nothing", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    Minimap:SetFrameStrata("LOW"); Minimap:SetFrameLevel(3)
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    eq(f._strata, "LOW", "the minimap's strata"); eq(f:GetFrameLevel(), 4, "one level over it")
+    Minimap:Hide(); S.frame(0.2)
+    eq(f._point[2], UIParent, "drawn free"); eq(f._strata, "MEDIUM", "its own strata again")
+    local onHidden = f:IsShown() and f._point[2] == Minimap
+    SlashCmdList.NAGDEATHRADAR("minimap off"); _G.Minimap = nil
+    assert(not onHidden, "the minimap hidden: the radar still shows, anchored on the hidden minimap")
+end)
+
+test("radar: unified, no distance line on the totem radar's dock icons while unified", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 6, hy)
+    totemModule()
+    SlashCmdList.NAGDEATHRADAR("unify"); ns.Radar.Paint()
+    local text = f.dist:IsShown() and (f.dist:GetText() or "") or ""
+    local top = -(f.dist._point[5] or 0) -- pixels under the centre, in the totem radar's units (same effective scale)
+    SlashCmdList.NAGDEATHRADAR("unify off"); _G.NAG = nil
+    eq(f.dist:IsShown(), true, "free again: the line shows")
+    local lo, hi = T_RADIUS - T_BORDER, T_RADIUS - T_BORDER + T_BACK -- the bottom dock icons' band, under the centre
+    assert(text == "" or top >= hi + 24 or top + 12 <= lo,
+        ("unified: the distance line (%d..%d px under the centre) sits on the totem radar's bottom dock icons (%d..%d px)")
+        :format(top, top + 12, lo, hi))
+end)
+
 local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end

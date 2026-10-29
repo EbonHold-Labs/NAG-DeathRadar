@@ -71,6 +71,7 @@ function FRAME:CreateMaskTexture() return new(MASK, self) end
 function FRAME:CreateFontString() return new(FONT, self) end
 function FRAME:SetFrameLevel(l) self._level = l end
 function FRAME:SetFrameStrata(s) self._strata = s end
+function FRAME:GetFrameStrata() return self._strata or "MEDIUM" end
 function FRAME:GetFrameLevel() return self._level or 1 end
 function FRAME:SetScale(s) self._scale = s end
 function FRAME:GetScale() return self._scale or 1 end

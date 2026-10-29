@@ -112,10 +112,14 @@ end
 --- the totem radar on it), the scale that fits the radar's field to the target's width, and the yards to the rim:
 --- unified, the totem radar's (owner, 2026-10-29: one scale in one ring; its module's YARDS, else 40), else nil.
 local TOTEM_YARDS = 40
+local FREE_STRATA = "MEDIUM" -- a UIParent child's own
 local function dockOn(s)
     local target, onMinimap, yards
-    if s.dock == "minimap" and type(_G.Minimap) == "table" then
-        target, onMinimap = _G.Minimap, true
+    local M = _G.Minimap
+    local okM, mShown = false, false
+    if s.dock == "minimap" and type(M) == "table" then okM, mShown = pcall(M.IsShown, M) end
+    if okM and mShown == true then -- a hidden minimap, like a hidden totem radar: drawn free
+        target, onMinimap = M, true
     elseif s.dock == "totem" then
         local f, m = totemFrame()
         if f then
@@ -501,9 +505,18 @@ local function placeFrame(s)
     dimmed = nil -- the alpha is set again for the new base
     frame:ClearAllPoints()
     if target then
+        -- A defined order (red review): one level over the target in its strata. On the totem radar that is over its
+        -- frame (field, rim, reach circles), level with its on-radar totem icons and under its dock (level + 2).
+        -- The radar stays mouse-off without Alt, so the target keeps its plain clicks and drag.
+        local okS, strata = pcall(target.GetFrameStrata, target)
+        local okL, level = pcall(target.GetFrameLevel, target)
+        if okS and type(strata) == "string" then frame:SetFrameStrata(strata) end
+        if okL and type(level) == "number" then frame:SetFrameLevel(level + 1) end
         frame:SetScale(scale)
         frame:SetPoint("CENTER", target, "CENTER", 0, 0)
     else
+        frame:SetFrameStrata(FREE_STRATA)
+        frame:SetFrameLevel(R.freeLevel or 1)
         frame:SetScale(s.scale)
         frame:SetPoint("CENTER", UIParent, "CENTER", s.radarPos.x / s.scale, s.radarPos.y / s.scale)
     end
@@ -550,6 +563,8 @@ function R.ApplyLook(s)
     frame:SetSize(edge * 2, edge * 2)
     local hot = art and (RADIUS + BORDER / 2) / HOT_INNER or RADIUS / HOT_OUTER
     frame.hot:SetSize(hot, hot)
+    -- Unified, no distance line: it would sit on the totem radar's dock icons (the pointer stays at the rim).
+    frame.dist:SetShown(not (docked and docked ~= _G.Minimap))
     frame.dist:ClearAllPoints()
     frame.dist:SetPoint("TOP", frame, "CENTER", 0, -edge - 2)
 end
@@ -582,6 +597,7 @@ function R.Init()
     frame:Hide()
     frame:SetSize(size, size)
     frame:SetClampedToScreen(true)
+    R.freeLevel = frame:GetFrameLevel()
     frame:SetMovable(true)
     frame:RegisterForDrag("LeftButton")
     -- The radar's circle: the field and every blip are cut by it.
