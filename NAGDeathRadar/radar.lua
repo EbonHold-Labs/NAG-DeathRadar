@@ -457,9 +457,11 @@ local function onUpdate(_, elapsed)
     if sinceTick >= TICK then
         sinceTick = 0
         local s = NAGDeathRadarSettings
-        if s.dock ~= "free" then -- the totem radar shown or hidden, moved to the minimap, resized: follow it
-            local target, _, scale = dockOn(s)
-            if target ~= docked or scale ~= dockedScale then R.Refresh(s); return end
+        if s.dock ~= "free" then -- the totem radar shown, hidden, resized or moved to the minimap, Rotate
+            -- Minimap switched: follow it
+            local target, onMinimap, scale = dockOn(s)
+            local up = onMinimap == true and not minimapTurns()
+            if target ~= docked or scale ~= dockedScale or up ~= northUp then R.Refresh(s); return end
         end
         R.Paint()
         return
@@ -483,7 +485,7 @@ end
 local function placeFrame(s)
     local target, onMinimap, scale = dockOn(s)
     docked, dockedScale = target, scale
-    northUp = onMinimap and not minimapTurns()
+    northUp = onMinimap == true and not minimapTurns()
     baseAlpha = onMinimap and MINIMAP_ALPHA or 1
     dimmed = nil -- the alpha is set again for the new base
     frame:ClearAllPoints()

@@ -512,10 +512,11 @@ function ns.Command(s, msg)
     elseif cmd == "minimap" or cmd == "unify" then
         local want = cmd == "minimap" and "minimap" or "totem"
         local on = arg == "on" or (arg ~= "off" and s.dock ~= want)
-        s.dock = on and want or "free"
-        if on then s.mode, s.radar = "circle", true end
-        return s, { cmd == "minimap" and ("radar " .. (on and "on the minimap" or "off the minimap"))
+        s.dock = on and want or "free" -- the view stays the player's: docking places the circle radar only
+        local lines = { cmd == "minimap" and ("radar " .. (on and "on the minimap" or "off the minimap"))
             or ("radar " .. (on and "unified with the totem radar (when it is shown)" or "apart from the totem radar")) }
+        if on and s.mode ~= "circle" then lines[2] = "applies to the circle radar: /ndr mode radar shows it" end
+        return s, lines
     elseif cmd == "art" then
         s.art = onOff(arg, s.art)
         return s, { "radar art " .. (s.art and "on" or "off") }

@@ -1410,6 +1410,91 @@ test("radar: Alt + right-click opens its menu; the totem entry only with the tot
     _G.Minimap, _G.NAG = nil, nil
 end)
 
+test("radar: dock totem degrades to free with NAG absent, broken or renamed", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 50, 50)
+    local shapes = {
+        { "NAG absent", nil },
+        { "NAG not a table", "NAG" },
+        { "NAG without GetModule", {} },
+        { "GetModule raises", { GetModule = function() error("no such module") end } },
+        { "module renamed (nil)", { GetModule = function() return nil end } },
+        { "module without frame", { GetModule = function() return {} end } },
+        { "frame IsShown raises", { GetModule = function() return { frame = { IsShown = function() error("x") end } } end } },
+    }
+    for _, sh in ipairs(shapes) do
+        _G.NAG = sh[2]
+        local ok, err = pcall(SlashCmdList.NAGDEATHRADAR, "unify")
+        assert(ok, sh[1] .. ": /ndr unify raised " .. tostring(err))
+        eq(f._point[2], UIParent, sh[1] .. ": drawn free")
+        eq(f.rim:IsShown(), true, sh[1] .. ": its own ring")
+        local okT, errT = pcall(S.frame, 0.2)
+        assert(okT, sh[1] .. ": a tick raised " .. tostring(errT))
+        local okM, errM = pcall(ns.Radar.ShowMenu)
+        assert(okM, sh[1] .. ": the menu raised " .. tostring(errM))
+        SlashCmdList.NAGDEATHRADAR("unify off")
+    end
+    -- A shown totem frame whose module has no OnMinimap: docks, full alpha, no error.
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    _G.NAG = { GetModule = function() return { frame = totem } end }
+    SlashCmdList.NAGDEATHRADAR("unify")
+    eq(f._point[2], totem, "docked without OnMinimap"); eq(f._alpha, 1, "not treated as the minimap")
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG = nil
+end)
+
+test("radar: a rotating minimap turns the docked picture with the player", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    _G.GetCVar = function(k) return k == "rotateMinimap" and "1" or nil end
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 3, hy + 2); S.player.facing = 1
+    eq(R.Paint(), "ok")
+    local nx = R.Pointer().tex._point[4]
+    S.player.facing = 2; R.Paint()
+    assert(R.Pointer().tex._point[4] ~= nx, "rotating minimap: the facing must turn the picture")
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    _G.Minimap, _G.GetCVar = nil, nil
+end)
+
+test("radar: Rotate Minimap switched on while docked turns the picture without a reload", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    local cvar = "0"
+    _G.GetCVar = function(k) return k == "rotateMinimap" and cvar or nil end
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 3, hy + 2)
+    cvar = "1"; S.frame(0.2)
+    S.player.facing = 1; R.Paint()
+    local nx = R.Pointer().tex._point[4]
+    S.player.facing = 2; R.Paint()
+    local turned = R.Pointer().tex._point[4] ~= nx
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    _G.Minimap, _G.GetCVar = nil, nil
+    assert(turned, "Rotate Minimap switched on mid-session: the docked picture stays north up")
+end)
+
+test("radar: /ndr minimap and /ndr unify only place the circle radar; the chosen view stays", function()
+    local ns = bootRadar()
+    NAGDeathRadarSettings.mode, NAGDeathRadarSettings.radar = "perspective", false
+    local s, reply = ns.Command(NAGDeathRadarSettings, "minimap")
+    eq(s.dock, "minimap"); eq(s.mode, "perspective", "view kept"); eq(s.radar, false, "shown state kept")
+    eq(reply[2], "applies to the circle radar: /ndr mode radar shows it")
+    s, reply = ns.Command(s, "unify on")
+    eq(s.dock, "totem"); eq(s.mode, "perspective")
+    s.mode = "circle"
+    s, reply = ns.Command(s, "minimap on")
+    eq(s.dock, "minimap"); eq(reply[2], nil, "no note in circle mode")
+    s = ns.Command(s, "minimap off"); eq(s.dock, "free")
+end)
+
 local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
