@@ -1495,6 +1495,33 @@ test("radar: /ndr minimap and /ndr unify only place the circle radar; the chosen
     s = ns.Command(s, "minimap off"); eq(s.dock, "free")
 end)
 
+test("radar: a steady docked radar does not Refresh each tick", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    local cvar = "0"
+    _G.GetCVar = function(k) return k == "rotateMinimap" and cvar or nil end
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    local real, n = R.Refresh, 0
+    R.Refresh = function(...) n = n + 1; return real(...) end
+    local function steady(label)
+        S.frame(0.2); n = 0
+        for _ = 1, 20 do S.frame(0.11) end
+        assert(n == 0, label .. ": " .. n .. " Refresh calls in 20 steady ticks")
+    end
+    SlashCmdList.NAGDEATHRADAR("minimap"); steady("minimap, north up")
+    cvar = "1"; steady("minimap, rotating")
+    SlashCmdList.NAGDEATHRADAR("minimap off")
+    _G.NAG = { GetModule = function() return module end }
+    SlashCmdList.NAGDEATHRADAR("unify"); steady("unified")
+    totem:Hide(); steady("unified, totem radar hidden (drawn free)")
+    R.Refresh = real
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG, _G.Minimap, _G.GetCVar = nil, nil, nil
+end)
+
 local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
