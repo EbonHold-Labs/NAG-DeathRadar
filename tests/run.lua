@@ -671,7 +671,7 @@ test("slash: nan and inf are refused and leave the settings as they were", funct
         local s = ns.InitSettings(nil)
         local reply
         s, reply = ns.Command(s, msg)
-        eq(s.yards, 100, msg .. " yards"); eq(s.hot, 0.25, msg .. " hot"); eq(s.scale, 1, msg .. " scale")
+        eq(s.yards, 100, msg .. " yards"); eq(s.hot, 0.25, msg .. " hot"); eq(s.scale, 0.85, msg .. " scale")
         assert(reply[1]:find(" takes ", 1, true), msg .. ": the usage line, got " .. tostring(reply[1]))
     end
 end)
@@ -679,7 +679,7 @@ end)
 test("settings: missing, wrongly typed and out-of-range keys come back from defaults", function()
     local ns = boot(false)
     local s = ns.InitSettings({ scale = "big", yards = 5000, hot = 0 / 0, radar = false, custom = 1, radarPos = { x = "a" } })
-    eq(s.scale, 1); eq(s.yards, 100); eq(s.hot, 0.25); eq(s.radar, false, "kept"); eq(s.custom, 1, "unknown kept")
+    eq(s.scale, 0.85); eq(s.yards, 100); eq(s.hot, 0.25); eq(s.radar, false, "kept"); eq(s.custom, 1, "unknown kept")
     eq(s.radarPos.y, -200, "position reset")
     eq(ns.InitSettings(nil).rimTint, true, "rim tint on by default")
 end)
@@ -1175,7 +1175,7 @@ test("radar: in a hot cell the rim turns red and the line says so; with tint off
     standAt(ELWYNN, hx, hy)
     eq(ns.Radar.Paint(), "ok")
     eq(ns.Radar.RimHot(), true, "tinted")
-    eq(ns.RadarFrame.rim._color[1], 0.9, "red rim")
+    eq(ns.RadarFrame.rim._vertex[1], 0.9, "red rim")
     eq(ns.RadarFrame.dist:GetText(), "danger: you stand in a hot zone")
     assert(ns.Radar.BlipCount() > 0, "cells drawn")
     SlashCmdList.NAGDEATHRADAR("tint off")
@@ -1283,6 +1283,7 @@ end)
 test("radar: the mouse only while Alt is held; a lock stops the drag", function()
     local ns = bootRadar()
     local f = ns.RadarFrame
+    SlashCmdList.NAGDEATHRADAR("scale 1")
     eq(f._mouse, false, "no mouse by default: world clicks go through")
     S.player.alt = true; S.fire("MODIFIER_STATE_CHANGED")
     eq(f._mouse, true, "Alt held")
@@ -1300,6 +1301,368 @@ test("radar: the mouse only while Alt is held; a lock stops the drag", function(
     eq(f._moving, false, "locked: no drag")
 end)
 
+test("defaults: the plain circle radar, the totem radar's look; old untouched defaults migrate once", function()
+    local ns = bootRadar()
+    local d, f = ns.InitSettings(nil), ns.RadarFrame
+    eq(d.mode, "circle"); eq(d.art, false); eq(d.scale, 0.85); eq(d.dock, "free")
+    eq(ns.Radar.RADIUS, 44, "the totem radar's radius"); eq(ns.Radar.BORDER, 3)
+    eq(f.art:IsShown(), false, "no ornament"); eq(f.grid:IsShown(), false, "no grid")
+    eq(f.field._color[4], 0.3, "30 % black field"); eq(f.rim._vertex[1], 0, "black rim")
+    eq(f._w, 88, "the frame is the circle")
+    -- An old saved copy with every untouched default (perspective, art ring 1 grid 1, scale 1) upgrades once.
+    local old = ns.InitSettings({ mode = "perspective", art = true, ring = 1, grid = 1, scale = 1 })
+    eq(old.mode, "circle"); eq(old.art, false); eq(old.scale, 0.85); eq(old.lookVersion, 1)
+    -- Deliberate choices stay: another ring, another size, the world view.
+    local kept = ns.InitSettings({ mode = "world", art = true, ring = 8, grid = 1, scale = 1.2 })
+    eq(kept.mode, "world"); eq(kept.art, true); eq(kept.scale, 1.2)
+    -- After the upgrade the old values may be chosen again.
+    local again = ns.InitSettings({ lookVersion = 1, mode = "perspective", art = true, ring = 1, grid = 1, scale = 1 })
+    eq(again.mode, "perspective"); eq(again.art, true); eq(again.scale, 1)
+end)
+
+test("radar: on the minimap it sits on its centre at its size, half see-through, north up unless it rotates", function()
+    local ns = bootRadar()
+    local f, R = ns.RadarFrame, ns.Radar
+    standAt(ELWYNN, 50, 50) -- a position: the radar is not dimmed
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    local cvar = "0"
+    _G.GetCVar = function(k) return k == "rotateMinimap" and cvar or nil end
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    eq(NAGDeathRadarSettings.dock, "minimap", "saved")
+    eq(f._point[2], Minimap, "on the minimap"); eq(f._point[1], "CENTER")
+    near(f._scale, 140 / (R.RADIUS * 2), "fits the minimap's width", 1e-9)
+    eq(f._alpha, 0.5, "half see-through"); eq(f.arrow:IsShown(), false, "the minimap has its own arrow")
+    eq(f.art:IsShown(), false, "no ornament on the minimap"); eq(f.rim:IsShown(), true, "its rim")
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 3, hy + 2); S.player.facing = 1
+    eq(R.Paint(), "ok")
+    local nx, ny = R.Pointer().tex._point[4], R.Pointer().tex._point[5]
+    S.player.facing = 2; R.Paint()
+    eq(R.Pointer().tex._point[4], nx, "north up: the facing does not turn it"); eq(R.Pointer().tex._point[5], ny)
+    S.player.alt = true; S.fire("MODIFIER_STATE_CHANGED")
+    f._moving = false; f._scripts.OnDragStart(f)
+    eq(f._moving, false, "docked: no drag")
+    S.player.alt = false; S.fire("MODIFIER_STATE_CHANGED")
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    eq(NAGDeathRadarSettings.dock, "free"); eq(f._point[2], UIParent, "back on the screen")
+    eq(f._alpha, 1, "full alpha"); eq(f.arrow:IsShown(), true)
+    _G.Minimap, _G.GetCVar = nil, nil
+end)
+
+test("radar: unified with the totem radar it sits on its frame at its size and leaves it the ring", function()
+    local ns = bootRadar()
+    local f, R = ns.RadarFrame, ns.Radar
+    standAt(ELWYNN, 50, 50)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88); totem:SetScale(0.85)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function(_, name) return name == "CamelotTotemRadar" and module or nil end }
+    SlashCmdList.NAGDEATHRADAR("unify")
+    eq(NAGDeathRadarSettings.dock, "totem")
+    eq(f._point[2], totem, "on the totem radar"); near(f._scale, 0.85, "its size", 1e-9)
+    eq(f.rim:IsShown(), false, "one ring: the totem radar's"); eq(f.field:IsShown(), false, "one field")
+    eq(f.arrow:IsShown(), false, "one arrow"); eq(f._alpha, 1)
+    -- The totem radar hidden: the death radar is drawn free with its own ring, and comes back when it shows.
+    totem:Hide(); S.frame(0.2)
+    eq(f._point[2], UIParent, "free while the totem radar is hidden"); eq(f.rim:IsShown(), true)
+    totem:Show(); S.frame(0.2)
+    eq(f._point[2], totem, "back on it")
+    -- The totem radar on the minimap: half see-through as it is.
+    module.OnMinimap = function() return true end; totem:SetScale(1.5); S.frame(0.2)
+    near(f._scale, 1.5, "follows its size", 1e-9); eq(f._alpha, 0.5)
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    eq(NAGDeathRadarSettings.dock, "free"); eq(f._point[2], UIParent)
+    _G.NAG = nil
+end)
+
+test("radar: Alt + right-click opens its menu; the totem entry only with the totem radar shown", function()
+    local ns = bootRadar({ menu = true })
+    local f = ns.RadarFrame
+    local items
+    local function root()
+        local r = {}
+        function r:CreateTitle(t) items[#items + 1] = { t } end
+        function r:CreateCheckbox(t, isSel, set) items[#items + 1] = { t, isSel, set } end
+        function r:CreateButton(t, fn) items[#items + 1] = { t, nil, fn } end
+        return r
+    end
+    MenuUtil.CreateContextMenu = function(owner, gen) eq(owner, f, "owner"); items = {}; gen(owner, root()) end
+    local function find(text)
+        for _, it in ipairs(items) do if it[1] == text then return it end end
+    end
+    S.player.alt = true; S.fire("MODIFIER_STATE_CHANGED")
+    f._scripts.OnMouseUp(f, "RightButton")
+    eq(#S.opened, 0, "the menu, not the panel")
+    assert(find("Attach to the minimap"), "the minimap entry")
+    eq(find("Unify with the totem radar (one ring)"), nil, "no totem radar: no entry")
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    local mm = find("Attach to the minimap"); mm[3]()
+    eq(NAGDeathRadarSettings.dock, "minimap"); eq(mm[2](), true, "checked")
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    _G.NAG = { GetModule = function() return { frame = totem, OnMinimap = function() return false end } end }
+    f._scripts.OnMouseUp(f, "RightButton")
+    local un = assert(find("Unify with the totem radar (one ring)"), "the totem entry")
+    un[3](); eq(NAGDeathRadarSettings.dock, "totem", "unified"); eq(f._point[2], totem)
+    find("Settings...")[3](); eq(S.opened[1], 77, "the panel from the menu")
+    -- No MenuUtil: the panel, as before.
+    MenuUtil.CreateContextMenu = nil
+    f._scripts.OnMouseUp(f, "RightButton")
+    eq(#S.opened, 2, "the panel where the client has no context menu")
+    _G.Minimap, _G.NAG = nil, nil
+end)
+
+test("radar: dock totem degrades to free with NAG absent, broken or renamed", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 50, 50)
+    local shapes = {
+        { "NAG absent", nil },
+        { "NAG not a table", "NAG" },
+        { "NAG without GetModule", {} },
+        { "GetModule raises", { GetModule = function() error("no such module") end } },
+        { "module renamed (nil)", { GetModule = function() return nil end } },
+        { "module without frame", { GetModule = function() return {} end } },
+        { "frame IsShown raises", { GetModule = function() return { frame = { IsShown = function() error("x") end } } end } },
+    }
+    for _, sh in ipairs(shapes) do
+        _G.NAG = sh[2]
+        local ok, err = pcall(SlashCmdList.NAGDEATHRADAR, "unify")
+        assert(ok, sh[1] .. ": /ndr unify raised " .. tostring(err))
+        eq(f._point[2], UIParent, sh[1] .. ": drawn free")
+        eq(f.rim:IsShown(), true, sh[1] .. ": its own ring")
+        local okT, errT = pcall(S.frame, 0.2)
+        assert(okT, sh[1] .. ": a tick raised " .. tostring(errT))
+        local okM, errM = pcall(ns.Radar.ShowMenu)
+        assert(okM, sh[1] .. ": the menu raised " .. tostring(errM))
+        SlashCmdList.NAGDEATHRADAR("unify off")
+    end
+    -- A shown totem frame whose module has no OnMinimap: docks, full alpha, no error.
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    _G.NAG = { GetModule = function() return { frame = totem } end }
+    SlashCmdList.NAGDEATHRADAR("unify")
+    eq(f._point[2], totem, "docked without OnMinimap"); eq(f._alpha, 1, "not treated as the minimap")
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG = nil
+end)
+
+test("radar: a rotating minimap turns the docked picture with the player", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    _G.GetCVar = function(k) return k == "rotateMinimap" and "1" or nil end
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 3, hy + 2); S.player.facing = 1
+    eq(R.Paint(), "ok")
+    local nx = R.Pointer().tex._point[4]
+    S.player.facing = 2; R.Paint()
+    assert(R.Pointer().tex._point[4] ~= nx, "rotating minimap: the facing must turn the picture")
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    _G.Minimap, _G.GetCVar = nil, nil
+end)
+
+test("radar: Rotate Minimap switched on while docked turns the picture without a reload", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    local cvar = "0"
+    _G.GetCVar = function(k) return k == "rotateMinimap" and cvar or nil end
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 3, hy + 2)
+    cvar = "1"; S.frame(0.2)
+    S.player.facing = 1; R.Paint()
+    local nx = R.Pointer().tex._point[4]
+    S.player.facing = 2; R.Paint()
+    local turned = R.Pointer().tex._point[4] ~= nx
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    _G.Minimap, _G.GetCVar = nil, nil
+    assert(turned, "Rotate Minimap switched on mid-session: the docked picture stays north up")
+end)
+
+test("radar: /ndr minimap and /ndr unify only place the circle radar; the chosen view stays", function()
+    local ns = bootRadar()
+    NAGDeathRadarSettings.mode, NAGDeathRadarSettings.radar = "perspective", false
+    local s, reply = ns.Command(NAGDeathRadarSettings, "minimap")
+    eq(s.dock, "minimap"); eq(s.mode, "perspective", "view kept"); eq(s.radar, false, "shown state kept")
+    eq(reply[2], "applies to the circle radar: /ndr mode radar shows it")
+    s, reply = ns.Command(s, "unify on")
+    eq(s.dock, "totem"); eq(s.mode, "perspective")
+    s.mode = "circle"
+    s, reply = ns.Command(s, "minimap on")
+    eq(s.dock, "minimap"); eq(reply[2], nil, "no note in circle mode")
+    s = ns.Command(s, "minimap off"); eq(s.dock, "free")
+end)
+
+test("radar: a steady docked radar does not Refresh each tick", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    local cvar = "0"
+    _G.GetCVar = function(k) return k == "rotateMinimap" and cvar or nil end
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    local real, n = R.Refresh, 0
+    R.Refresh = function(...) n = n + 1; return real(...) end
+    local function steady(label)
+        S.frame(0.2); n = 0
+        for _ = 1, 20 do S.frame(0.11) end
+        assert(n == 0, label .. ": " .. n .. " Refresh calls in 20 steady ticks")
+    end
+    SlashCmdList.NAGDEATHRADAR("minimap"); steady("minimap, north up")
+    cvar = "1"; steady("minimap, rotating")
+    SlashCmdList.NAGDEATHRADAR("minimap off")
+    _G.NAG = { GetModule = function() return module end }
+    SlashCmdList.NAGDEATHRADAR("unify"); steady("unified")
+    totem:Hide(); steady("unified, totem radar hidden (drawn free)")
+    R.Refresh = real
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG, _G.Minimap, _G.GetCVar = nil, nil, nil
+end)
+
+test("radar: unified, the ring is the totem radar's 40 yd; free or with the totem radar hidden, the player's 100", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 1, hy)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function() return module end }
+    -- A death 40 yd straight ahead (north, facing north): its blip's offset from the centre.
+    local function at40()
+        eq(R.Paint(), "ok"); assert(R.BlipCount() > 0, "a blip")
+        local e = R.Blip(1)
+        e.dx, e.dy = 40, 0
+        R.Place(0)
+        return e.tex._point[5]
+    end
+    eq(NAGDeathRadarSettings.yards, 100)
+    near(at40(), R.RADIUS * 0.4, "free: 40 % of the radius", 1e-9)
+    SlashCmdList.NAGDEATHRADAR("unify")
+    eq(R.Yards(), 40, "the totem radar's range")
+    near(at40(), R.RADIUS, "unified: on the rim", 1e-9)
+    module.YARDS = 50; SlashCmdList.NAGDEATHRADAR("unify off"); SlashCmdList.NAGDEATHRADAR("unify")
+    eq(R.Yards(), 50, "its module's YARDS when exposed")
+    module.YARDS = nil; SlashCmdList.NAGDEATHRADAR("unify off"); SlashCmdList.NAGDEATHRADAR("unify")
+    totem:Hide(); S.frame(0.2)
+    eq(R.Yards(), 100, "totem radar hidden: the player's own")
+    near(at40(), R.RADIUS * 0.4, "hidden: 40 % again", 1e-9)
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG = nil
+end)
+
+test("radar: unified, Paint collects only what the 40 yd ring can show", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 1, hy)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function() return module end }
+    local function farthest()
+        eq(R.Paint(), "ok")
+        local n, far = R.BlipCount(), 0
+        for i = 1, n do
+            local e = R.Blip(i)
+            if e.tex:IsShown() then
+                local x, y = e.tex._point[4] or 0, e.tex._point[5] or 0
+                far = math.max(far, math.sqrt(x * x + y * y))
+            end
+        end
+        return n, far
+    end
+    local nFree, farFree = farthest()
+    SlashCmdList.NAGDEATHRADAR("unify")
+    local nUni, farUni = farthest()
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG = nil
+    assert(nFree > 0, "free: blips to compare")
+    assert(farUni <= R.RADIUS * 1.2, ("unified: a blip %.1f px out, the rim is %d px (cells collected on the wrong range)")
+        :format(farUni, R.RADIUS))
+    assert(nUni <= nFree, ("unified collected %d cells, free (100 yd) %d"):format(nUni, nFree))
+end)
+
+test("radar: a totem module's bad YARDS falls back to 40 and raises nothing", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    standAt(ELWYNN, 50, 50)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function() return module end }
+    for _, bad in ipairs({ "50", 0, -5, true, {} }) do
+        module.YARDS = bad
+        local ok, err = pcall(function()
+            SlashCmdList.NAGDEATHRADAR("unify"); S.frame(0.2); R.Paint()
+        end)
+        assert(ok, "YARDS " .. tostring(bad) .. " raised " .. tostring(err))
+        eq(R.Yards(), 40, "YARDS " .. tostring(bad) .. ": the 40 default")
+        SlashCmdList.NAGDEATHRADAR("unify off")
+    end
+    _G.NAG = nil
+end)
+
+-- The totem radar's geometry (NAG/camelot/etn1.lua, develop) for the docking tests below (red review, #8).
+local T_RADIUS, T_BORDER, T_BACK = 44, 3, 26
+
+local function totemModule(level)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88); totem:SetScale(0.85)
+    if level then totem:SetFrameLevel(level) end
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function(_, name, silent)
+        if name == "CamelotTotemRadar" then return module end
+        if not silent then error("Cannot find module " .. tostring(name)) end
+    end }
+    return totem, module
+end
+
+test("radar: unified, it is one level over the totem radar frame in its strata (draw + Alt-click order defined)", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 50, 50)
+    local totem = totemModule(5) -- a UIParent child of NAG's: its own level; the radar never sets one
+    SlashCmdList.NAGDEATHRADAR("unify")
+    local fl, tl = f:GetFrameLevel(), totem:GetFrameLevel()
+    local fs, ts = f._strata, totem:GetFrameStrata()
+    SlashCmdList.NAGDEATHRADAR("unify off"); _G.NAG = nil
+    assert(fl == tl + 1 and fs == ts, ("docked on the totem radar: radar level %d strata %s, totem level %d strata %s"
+        .. " (same strata, no explicit level: which frame draws on top and takes the Alt+right-click is undefined)")
+        :format(fl, tostring(fs), tl, tostring(ts)))
+end)
+
+test("radar: the minimap hidden: the docked radar is not drawn over nothing", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    standAt(ELWYNN, 50, 50)
+    _G.Minimap = S.new(S.KINDS.FRAME); Minimap:SetSize(140, 140)
+    Minimap:SetFrameStrata("LOW"); Minimap:SetFrameLevel(3)
+    SlashCmdList.NAGDEATHRADAR("minimap")
+    eq(f._strata, "LOW", "the minimap's strata"); eq(f:GetFrameLevel(), 4, "one level over it")
+    Minimap:Hide(); S.frame(0.2)
+    eq(f._point[2], UIParent, "drawn free"); eq(f._strata, "MEDIUM", "its own strata again")
+    local onHidden = f:IsShown() and f._point[2] == Minimap
+    SlashCmdList.NAGDEATHRADAR("minimap off"); _G.Minimap = nil
+    assert(not onHidden, "the minimap hidden: the radar still shows, anchored on the hidden minimap")
+end)
+
+test("radar: unified, no distance line on the totem radar's dock icons while unified", function()
+    local ns = bootRadar()
+    local f = ns.RadarFrame
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 6, hy)
+    totemModule()
+    SlashCmdList.NAGDEATHRADAR("unify"); ns.Radar.Paint()
+    local text = f.dist:IsShown() and (f.dist:GetText() or "") or ""
+    local top = -(f.dist._point[5] or 0) -- pixels under the centre, in the totem radar's units (same effective scale)
+    SlashCmdList.NAGDEATHRADAR("unify off"); _G.NAG = nil
+    eq(f.dist:IsShown(), true, "free again: the line shows")
+    local lo, hi = T_RADIUS - T_BORDER, T_RADIUS - T_BORDER + T_BACK -- the bottom dock icons' band, under the centre
+    assert(text == "" or top >= hi + 24 or top + 12 <= lo,
+        ("unified: the distance line (%d..%d px under the centre) sits on the totem radar's bottom dock icons (%d..%d px)")
+        :format(top, top + 12, lo, hi))
+end)
+
 local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
@@ -1308,7 +1671,8 @@ test("radar: ring, grid and art choices persist and apply the art and the ring's
     local ns = bootRadar()
     local f, R = ns.RadarFrame, ns.Radar
     eq(NAGDeathRadarSettings.ring, 1, "default ring"); eq(NAGDeathRadarSettings.grid, 1, "default grid")
-    eq(NAGDeathRadarSettings.art, true, "art on by default")
+    eq(NAGDeathRadarSettings.art, false, "art off by default (owner, 2026-10-29)")
+    SlashCmdList.NAGDEATHRADAR("art on")
     for ring, g in pairs(RING_GEOMETRY) do
         SlashCmdList.NAGDEATHRADAR("ring " .. ring)
         eq(NAGDeathRadarSettings.ring, ring, "saved")
@@ -1326,7 +1690,7 @@ test("radar: ring, grid and art choices persist and apply the art and the ring's
     SlashCmdList.NAGDEATHRADAR("art off")
     eq(f.art:IsShown(), false, "ring art hidden"); eq(f.grid:IsShown(), false, "grid art hidden")
     eq(f.rim:IsShown(), true, "plain rim stays"); eq(f.field:IsShown(), true, "plain field stays")
-    eq(f._w, (R.RADIUS + R.BORDER) * 2, "art off: the frame is the plain rim")
+    eq(f._w, R.RADIUS * 2, "art off: the frame is the plain circle")
     -- Persisted: a new session reads them back.
     ns = bootRadar({ saved = { ring = 8, grid = 2, art = false } })
     eq(artPath(ns.RadarFrame.art), "frame8.png"); eq(artPath(ns.RadarFrame.grid), "radarGrids2.png")
@@ -1348,7 +1712,7 @@ test("radar: right-click opens the settings only with Alt, out of combat; the to
     f._scripts.OnEnter(f)
     eq(GameTooltip._shown, true, "Alt: the tooltip")
     eq(GameTooltip._lines[2], ns.StatusLine(), "the data line")
-    eq(GameTooltip._lines[3], "Right-click: settings")
+    eq(GameTooltip._lines[3], "Right-click: menu (minimap, totem radar, settings)")
     f._scripts.OnLeave(f)
     eq(GameTooltip._shown, false, "leave hides it")
     f._scripts.OnMouseUp(f, "LeftButton")
@@ -1456,7 +1820,7 @@ test("panel: check boxes follow the settings", function()
     p.cycles.grid._scripts.OnClick(p.cycles.grid)
     eq(NAGDeathRadarSettings.grid, 2); eq(p.cycles.grid:GetText(), "Grid: blue")
     eq(artPath(ns.RadarFrame.grid), "radarGrids2.png", "applied at once")
-    eq(p.boxes.art:GetChecked(), true, "the art box")
+    eq(p.boxes.art:GetChecked(), false, "the art box")
     -- The map opacity slider (UISliderTemplateWithLabels on every target client).
     local sl = assert(p.mapAlpha, "a slider")
     eq(S.lastTemplate, "UISliderTemplateWithLabels"); eq(sl._min, 0.1); eq(sl._max, 1); eq(sl:GetValue(), 1)

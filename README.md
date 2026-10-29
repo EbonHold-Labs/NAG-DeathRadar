@@ -8,13 +8,20 @@ levelling:
   radar's own red line), deepening with the danger, so a cell the radar points at is red on the map too;
   drawn 200 x 200 per map at every zoom, smoothed between cells (the file's `fine` cells where it has them);
   lighter than on the radar so the map art reads through, with its own opacity (`/ndr alpha`) and an on/off box on the map;
-- a **perspective danger view** in front of the character (the default), showing the map's red areas as
+- a **circle radar** (the default) that turns with you (the direction you face is up), shows the death cells around you and
+  points to the nearest danger zone, from the rim when it is further than the radar reaches. It looks like NAG's
+  Shaman totem radar: a thin dark rim, a see-through field, no ornament (the ornament rings and grids are opt-in,
+  `/ndr art on`). While you stand in a danger zone the rim turns red. Where there is no position (instances) or no
+  data for the map, it dims and says so. **Alt + right-click** it for its menu: attach it to your minimap (it sits on
+  the minimap at its size, half see-through, north up unless your minimap rotates), or, while NAG's totem radar is
+  shown, unify the two into one ring on one scale (the death radar then uses the totem radar's range, 40 yards to the
+  rim; free, on the minimap or while the totem radar is hidden, its own `/ndr range`, 100 yards by default);
+- a **perspective danger view** in front of the character (`/ndr mode perspective`), showing the map's red areas as
   quiet filled contours up to 180 yards ahead. It follows character heading, not the gameplay camera:
-  this is an illustration, best with the camera behind your character, not a terrain-attached overlay;
-- an optional **circle radar** that turns with you (the direction you face is up), shows the death cells around you and
-  points to the nearest danger zone, from the rim when it is further than the radar reaches. While you
-  stand in a danger zone the radar's rim turns red. Where there is no position (instances) or no data
-  for the map, it dims and says so.
+  this is an illustration, best with the camera behind your character, not a terrain-attached overlay.
+
+Saved settings from before 2026-10-29 that still held the old defaults (perspective view, ring 1 and grid 1 art,
+size 1) move once to the new ones; any other choice is kept, and the old ones can be chosen again.
 
 It only reads one data file, `Data/NAGDeathData.lua`. A release ships the published data of its day, so a
 copy installed without the NAG app (CurseForge) works from the first login; with the app, the app refreshes
@@ -40,7 +47,7 @@ other client shows "no data for this game" (or "no data yet" when no file is the
 |---|---|
 | `/ndr` or `/ndr help` | the data line and this list |
 | `/ndr show`, `/ndr hide` | the selected danger view |
-| `/ndr mode perspective`, `/ndr mode radar`, `/ndr mode world` | select Perspective (default), Radar, or World (test), which uses an approximate direction view unless camera sampling is explicitly enabled; `mode circle` remains an alias |
+| `/ndr mode perspective`, `/ndr mode radar`, `/ndr mode world` | select Radar (default), Perspective, or World (test), which uses an approximate direction view unless camera sampling is explicitly enabled; `mode circle` remains an alias |
 | `/ndr world start`, `/ndr world stop`, `/ndr world status` | start/resume, stop/release navigation, or print World view status and any captured API error; it never starts automatically after reload |
 | `/ndr world preview` | preview a moved and scaled copy of a map outline, clearly marked as a replay, using the current World sampling choice; original danger data stays untouched |
 | `/ndr world anchors on`, `/ndr world anchors off` | opt into or stop experimental camera sampling; **off by default** because sampling moves the map/minimap waypoint pin. With it off, World uses an approximate character-heading view without waypoint writes |
@@ -52,16 +59,18 @@ other client shows "no data for this game" (or "no data yet" when no file is the
 | `/ndr front` (also `/ndr ground`) | restore the position in front of/above the character and shallow height, preserving other settings |
 | `/ndr preview [on\|off]` | clearly labelled synthetic test areas; does not change the live data file |
 | `/ndr lock [on\|off]` | lock the radar; unlocked, **Alt + drag** moves it (without Alt, clicks go through to the world) |
+| `/ndr minimap [on\|off]` | the circle radar on your minimap (also in its Alt + right-click menu) |
+| `/ndr unify [on\|off]` | the circle radar and NAG's totem radar as one ring on the totem radar's 40-yard scale, while the totem radar is shown (also in the menu) |
 | `/ndr ring 1\|2\|8\|10` | the ring art: 1 dark iron (default), 2 plain silver, 8 spiked dark, 10 cyan tech |
 | `/ndr grid 1\|2` | the grid art: 1 green (default), 2 blue |
-| `/ndr art [on\|off]` | the ring and grid art; off leaves a plain ring and field |
+| `/ndr art [on\|off]` | the ring and grid art (off by default: the plain rim and field) |
 | `/ndr map [on\|off]` | the heatmap on the world map. Also on the map itself: on Forever, "Show deaths heatmap" under "NAG Death Radar" in the map's filter menu; on the Classic clients (whose maps have no filter menu), the **Deaths** box in the map's top-right corner |
 | `/ndr alpha 0.1-1` | the heatmap's opacity (default 1: the light weight, map art reads through); also a slider in the panel |
 | `/ndr tint [on\|off]` | the red rim while you stand in a danger zone (on by default) |
-| `/ndr scale 0.5-2` | circle radar size (default 1) |
+| `/ndr scale 0.5-2` | circle radar size (default 0.85, the totem radar's) |
 | `/ndr range 30-300` | yards from the circle radar's centre to its rim (default 100) |
 | `/ndr threshold 0.05-1` | a cell is a danger zone from this intensity (default 0.25) |
-| `/ndr options` | the settings panel (also under Options > AddOns, or **Alt + right-click** the radar out of combat) |
+| `/ndr options` | the settings panel (also under Options > AddOns, or **Settings...** in the radar's Alt + right-click menu) |
 | `/ndr reset` | the defaults |
 | `/ndr probe` | a copyable report of camera and world-projection capabilities; opens out of combat |
 

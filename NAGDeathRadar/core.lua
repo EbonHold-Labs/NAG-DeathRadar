@@ -52,7 +52,7 @@ end
 
 ns.defaults = {
     radar = true,      -- the radar is shown
-    mode = "perspective", -- the running view; the old circle remains explicitly selectable
+    mode = "circle",   -- the running view (owner, 2026-10-29: the plain circle, like the totem radar, by default)
     worldAnchors = false, -- waypoint sampling is an explicit experiment, never the running default
     reach = 180,
     viewWidth = 720,
@@ -67,15 +67,17 @@ ns.defaults = {
     mapAlpha = 1,      -- the heatmap's opacity, a multiplier on its squares only (the radar keeps its own)
     locked = false,    -- the radar cannot be dragged
     rimTint = true,    -- the radar's rim turns red while the player stands in a hot cell
-    art = true,        -- Fonsas's ring and grid art over the plain rim and field
+    art = false,       -- Fonsas's ring and grid art over the plain rim and field (opt-in since 2026-10-29)
     ring = 1,          -- which ring art (ns.CHOICES.ring)
     grid = 1,          -- which grid art: 1 green, 2 blue
-    scale = 1,         -- radar size
+    scale = 0.85,      -- radar size (the totem radar's default)
     yards = 100,       -- yards from the radar's centre to its rim
     hot = 0.25,        -- a cell is hot from this intensity (q / 100): red, the nearest-hot pointer and the rim tint
     thrLow = 0.02,     -- intensity colours below hot: light blue from thrLow, yellow from thrMid
     thrMid = 0.10,
     radarPos = { x = 0, y = -200 }, -- the radar's centre from UIParent's, in UIParent units
+    dock = "free",     -- free on the screen, "minimap": on the minimap, "totem": one ring with NAG's totem radar
+    lookVersion = 1,   -- 1: the 2026-10-29 plain look became the default (InitSettings migrates untouched defaults)
 }
 
 -- Numbers outside these bounds come back from the defaults.
@@ -84,7 +86,8 @@ ns.RANGES = { scale = { 0.5, 2 }, yards = { 30, 300 }, hot = { 0.05, 1 }, thrLow
     viewScale = { 0.5, 2 }, viewX = { -2000, 2000 }, viewY = { -1000, 1000 },
     viewOutline = { 0.5, 2 }, viewFill = { 0, 2 } }
 -- Settings that take one of a list (the art files under Media/).
-ns.CHOICES = { ring = { 1, 2, 8, 10 }, grid = { 1, 2 }, mode = { "perspective", "circle", "world" } }
+ns.CHOICES = { ring = { 1, 2, 8, 10 }, grid = { 1, 2 }, mode = { "perspective", "circle", "world" },
+    dock = { "free", "minimap", "totem" } }
 
 local function isChoice(key, v)
     for _, c in ipairs(ns.CHOICES[key]) do
@@ -106,6 +109,7 @@ function ns.InitSettings(sv)
     local legacyLayout = sv.viewLayoutVersion == nil
     local nearFeetLayout = sv.viewLayoutVersion == 1
     local centreLayout = sv.viewLayoutVersion == 2
+    local legacyLook = sv.lookVersion == nil
     for k, v in pairs(ns.defaults) do
         local cur, r = sv[k], ns.RANGES[k]
         if type(cur) ~= type(v) or (r and (cur ~= cur or cur < r[1] or cur > r[2]))
@@ -122,6 +126,13 @@ function ns.InitSettings(sv)
     if nearFeetLayout and sv.viewY == -400 then sv.viewY = ns.defaults.viewY end
     if centreLayout and sv.viewY == 0 then sv.viewY = ns.defaults.viewY end
     if legacyLayout or nearFeetLayout or centreLayout then sv.viewLayoutVersion = ns.defaults.viewLayoutVersion end
+    -- Owner, 2026-10-29: the plain circle radar (the totem radar's look) is the default. Upgrade the old untouched
+    -- defaults once (perspective view, ring 1 + grid 1 art, scale 1); any other saved choice is kept.
+    if legacyLook then
+        if sv.mode == "perspective" then sv.mode = "circle" end
+        if sv.art == true and sv.ring == 1 and sv.grid == 1 then sv.art = false end
+        if sv.scale == 1 then sv.scale = ns.defaults.scale end
+    end
     local p = sv.radarPos
     if type(p.x) ~= "number" or type(p.y) ~= "number" or p.x ~= p.x or p.y ~= p.y then
         sv.radarPos = copy(ns.defaults.radarPos)
@@ -467,9 +478,10 @@ ns.HELP = {
     "/ndr lock: lock or unlock the radar (drag it with Alt held)",
     "/ndr map [on|off]: the heatmap on the world map (also in the map's filter menu, or its Deaths box), alpha 0.1-1: its opacity",
     "/ndr tint [on|off]: the rim turns red where you stand in a hot cell",
-    "/ndr art [on|off], ring 1|2|8|10, grid 1|2 (1 green, 2 blue): the radar's look",
+    "/ndr art [on|off], ring 1|2|8|10, grid 1|2 (1 green, 2 blue): the radar's look (plain by default)",
+    "/ndr minimap [on|off]: the radar on your minimap; /ndr unify [on|off]: one ring with NAG's totem radar",
     "/ndr scale 0.5-2, range 30-300 (yards), threshold 0.05-1 (hot from this intensity)",
-    "/ndr options (or Alt + right-click the radar): the settings panel; /ndr reset: the defaults; /ndr help: this list",
+    "/ndr options: the settings panel (Alt + right-click the radar: its menu); /ndr reset: the defaults; /ndr help: this list",
     "/ndr probe: a copyable camera and world-projection capability report (out of combat)",
     "/ndr mode perspective|radar|world: select the danger view; normal viewing does not move waypoints",
     "/ndr world start|stop|preview|status: world view controls; after reload or a pause, start explicitly",
@@ -497,6 +509,14 @@ function ns.Command(s, msg)
     elseif cmd == "tint" then
         s.rimTint = onOff(arg, s.rimTint)
         return s, { "rim tint " .. (s.rimTint and "on" or "off") }
+    elseif cmd == "minimap" or cmd == "unify" then
+        local want = cmd == "minimap" and "minimap" or "totem"
+        local on = arg == "on" or (arg ~= "off" and s.dock ~= want)
+        s.dock = on and want or "free" -- the view stays the player's: docking places the circle radar only
+        local lines = { cmd == "minimap" and ("radar " .. (on and "on the minimap" or "off the minimap"))
+            or ("radar " .. (on and "unified with the totem radar (when it is shown)" or "apart from the totem radar")) }
+        if on and s.mode ~= "circle" then lines[2] = "applies to the circle radar: /ndr mode radar shows it" end
+        return s, lines
     elseif cmd == "art" then
         s.art = onOff(arg, s.art)
         return s, { "radar art " .. (s.art and "on" or "off") }

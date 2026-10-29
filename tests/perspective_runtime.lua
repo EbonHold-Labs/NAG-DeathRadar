@@ -15,6 +15,7 @@ local function boot(noData,build)
     end
     S.player.map,S.player.x,S.player.y,S.player.facing=1429,.5,.5,0
     S.worldBounds[1429]={600,600,0,0}
+    NAGDeathRadarSettings={mode='perspective',lookVersion=1} -- the view under test (circle is the default)
     S.fire('ADDON_LOADED','NAGDeathRadar'); S.fire('PLAYER_LOGIN')
     local runs={}
     for y=65,78 do runs[#runs+1]={x0=78,x1=92,y=y,step=1000} end

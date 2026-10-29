@@ -17,8 +17,17 @@
 --- and nothing ticks.
 ---
 --- MOUSE. The radar takes the mouse only while Alt is held, so clicks on the world under it are never
---- swallowed: Alt + left-drag moves it (unless locked), Alt + right-click opens the settings and Alt + hover
---- shows the data line (both out of combat).
+--- swallowed: Alt + left-drag moves it (unless locked or docked), Alt + right-click opens its menu (the settings
+--- panel where the client has no MenuUtil) and Alt + hover shows the data line (both out of combat).
+---
+--- THE LOOK (owner, 2026-10-29: "the simplest one, no ornaments around the ring ... look like the totem radar by
+--- default"): NAG's totem radar's, a thin black rim inside a 44 px circle over a 30 % black field, at 0.85 scale.
+--- The ornament rings and grids stay as opt-in art.
+--- DOCKED (setting `dock`, the menu, /ndr minimap, /ndr unify): "minimap" sits on the minimap's centre at its size,
+--- half see-through, no arrow, north up unless the player's minimap rotates (as the totem radar's minimap mode);
+--- "totem" sits on NAG's totem radar frame at its size and leaves the ring to it (own rim, field and arrow hidden),
+--- so the two read as one ring, on one scale: the totem radar's yards to the rim (40), not the death radar's own.
+--- While the totem radar is missing or hidden a "totem" radar is drawn free, as usual.
 ---
 --- The geometry and the drawing helpers (ToPlane, ToScreen, circleMask, maskWith, placeAt, the build, the
 --- drag and the OnUpdate) are copied from NAG's Shaman totem radar (NAG/camelot/etn1.lua), and the position and
@@ -39,8 +48,8 @@ local R = {}
 table.insert(ns.modules, R)
 ns.Radar = R
 
-local RADIUS = 60         -- pixels from the centre to the rim (the field)
-local BORDER = 4          -- the plain ring outside the field, pixels
+local RADIUS = 44         -- pixels from the centre to the rim (the field): the totem radar's
+local BORDER = 3          -- the plain rim, pixels, just inside the field's edge (the totem radar's)
 local POINTER = 12        -- the nearest-hot marker, pixels
 local ARROW_SIZE = 14
 local BLIP_MIN = 4        -- the smallest blip, pixels
@@ -70,13 +79,69 @@ local HOT_COLOR = { 1, 0.1, 0.1, 0.9 }
 local GRIDS = { [1] = "radarGrids1.png", [2] = "radarGrids2.png" } -- green, blue
 local GRID_DISC = 0.40    -- the disc's radius as a share of the width (100 of 250 px)
 local DIM = 0.3           -- the radar's alpha with no position or no data for the map
-local RIM_COLOR, RIM_HOT = { 0.1, 0.1, 0.1, 1 }, { 0.9, 0.1, 0.1, 1 }
+local FIELD_ALPHA = 0.3   -- the black inside the rim (the totem radar's)
+local MINIMAP_ALPHA = 0.5 -- the whole radar on the minimap (the totem radar's)
+local RIM_COLOR, RIM_HOT = { 0, 0, 0, 1 }, { 0.9, 0.1, 0.1, 1 }
 local NO_POSITION = "no position here"
 
 R.RADIUS, R.BORDER, R.POINTER, R.MAX_BLIPS, R.TICK, R.DIM = RADIUS, BORDER, POINTER, MAX_BLIPS, TICK, DIM
 R.LIMIT = RADIUS - POINTER / 2 -- the rim clamp: the marker's whole circle stays inside the field
 
 local isSecret = ns.IsSecret
+
+-- ============================ docking ============================
+
+--- NAG's totem radar frame and module while the frame is shown (NAG's AceAddon module CamelotTotemRadar), or nil.
+local function totemFrame()
+    local nag = _G.NAG
+    if type(nag) ~= "table" or type(nag.GetModule) ~= "function" then return nil end
+    local ok, m = pcall(nag.GetModule, nag, "CamelotTotemRadar", true)
+    local f = ok and type(m) == "table" and m.frame
+    if type(f) ~= "table" then return nil end
+    local okS, shown = pcall(f.IsShown, f)
+    if okS and shown == true then return f, m end
+end
+R.TotemFrame = totemFrame
+
+local function minimapTurns()
+    local ok, v = pcall(_G.GetCVar, "rotateMinimap")
+    return ok and not isSecret(v) and (v == "1" or v == 1)
+end
+
+--- What the radar sits on for the settings: the target frame (or nil: free), whether that is the minimap (itself or
+--- the totem radar on it), the scale that fits the radar's field to the target's width, and the yards to the rim:
+--- unified, the totem radar's (owner, 2026-10-29: one scale in one ring; its module's YARDS, else 40), else nil.
+local TOTEM_YARDS = 40
+local FREE_STRATA = "MEDIUM" -- a UIParent child's own
+local function dockOn(s)
+    local target, onMinimap, yards
+    local M = _G.Minimap
+    local okM, mShown = false, false
+    if s.dock == "minimap" and type(M) == "table" then okM, mShown = pcall(M.IsShown, M) end
+    if okM and mShown == true then -- a hidden minimap, like a hidden totem radar: drawn free
+        target, onMinimap = M, true
+    elseif s.dock == "totem" then
+        local f, m = totemFrame()
+        if f then
+            target = f
+            local ok, v = pcall(m.OnMinimap, m)
+            onMinimap = ok and v == true
+            local y = m.YARDS
+            yards = type(y) == "number" and not isSecret(y) and y > 0 and y or TOTEM_YARDS
+        end
+    end
+    if not target then return nil end
+    local scale = 1
+    local okW, width = pcall(target.GetWidth, target)
+    local okM, tScale = pcall(target.GetEffectiveScale, target)
+    local okU, uiScale = pcall(UIParent.GetEffectiveScale, UIParent)
+    if okW and okM and okU and type(width) == "number" and type(tScale) == "number" and type(uiScale) == "number"
+        and width > 0 and uiScale > 0 then
+        scale = width * tScale / (RADIUS * 2 * uiScale)
+    end
+    return target, onMinimap, scale, yards
+end
+R.DockOn = dockOn
 
 -- ============================ the picture's maths (etn1) ============================
 
@@ -243,12 +308,17 @@ local facing = 0      -- the last plain facing
 local placedFacing    -- the facing the pieces were last placed for
 local rimHot          -- the rim's current tint
 local sinceTick = 0
+local dimmed              -- the alpha's last state (nil: set it again)
+local dockedYards         -- unified: the totem radar's yards to the rim (nil: the player's `yards`)
+local docked, dockedScale -- the frame the radar sits on (nil: free) and its fitted scale, as last applied
+local northUp             -- on a minimap that does not turn: the picture is north up
+local baseAlpha = 1       -- MINIMAP_ALPHA on the minimap, else 1
 
 local function setRim(hot)
     if not frame or rimHot == hot then return end
     rimHot = hot
     local c = hot and RIM_HOT or RIM_COLOR
-    frame.rim:SetColorTexture(c[1], c[2], c[3], c[4])
+    frame.rim:SetVertexColor(c[1], c[2], c[3], c[4])
     frame.hot:SetShown(hot)
 end
 
@@ -259,12 +329,11 @@ local function clearPieces()
     if frame then frame.dist:SetText("") end
 end
 
---- The radar's alpha: DIM, or full. Touched only on a change.
-local dimmed
+--- The radar's alpha: DIM, or full (times baseAlpha). Touched only on a change.
 local function dim(on)
     if dimmed == on then return end
     dimmed = on
-    frame:SetAlpha(on and DIM or 1)
+    frame:SetAlpha((on and DIM or 1) * baseAlpha)
 end
 
 --- The centre note ("no data yet", "no data for this map", "no position here"), or nil for the picture.
@@ -280,11 +349,12 @@ local function note(text, dimOn)
         frame.arrow:Hide()
     else
         frame.note:Hide()
-        frame.arrow:Show()
+        frame.arrow:SetShown(not docked)
     end
 end
 
 local function viewFacing()
+    if northUp then return 0 end
     local state, f = facingRead()
     if state == "plain" then facing = f end
     return facing
@@ -294,7 +364,7 @@ end
 --- the pointer held inside the rim.
 function R.Place(f)
     if not frame then return end
-    local scale = RADIUS / NAGDeathRadarSettings.yards
+    local scale = RADIUS / R.Yards()
     for i = 1, nBlips do
         local e = blips[i]
         placeAt(frame, e, R.ToPlane(e.dx, e.dy, f, scale))
@@ -339,8 +409,9 @@ function R.Paint()
     local cellW, cellH = W / GRID, H / GRID
     local cx = min(GRID - 1, max(0, floor(px * GRID)))
     local cy = min(GRID - 1, max(0, floor(py * GRID)))
-    local rx, ry = ceil(s.yards / cellW) + 1, ceil(s.yards / cellH) + 1
-    local reach = s.yards + sqrt(cellW * cellH) / 2
+    local yards = R.Yards()
+    local rx, ry = ceil(yards / cellW) + 1, ceil(yards / cellH) + 1
+    local reach = yards + sqrt(cellW * cellH) / 2
     local found = {}
     local y0, y1 = cy - ry, cy + ry
     for x = max(0, cx - rx), min(GRID - 1, cx + rx) do
@@ -357,7 +428,7 @@ function R.Paint()
     if #found > MAX_BLIPS then
         table.sort(found, function(a, b) return a[3] > b[3] end)
     end
-    local scale = RADIUS / s.yards
+    local scale = RADIUS / yards
     local size = max(BLIP_MIN, sqrt(cellW * cellH) * scale * 1.15)
     local n = min(#found, MAX_BLIPS)
     for i = n + 1, nBlips do blips[i].tex:Hide() end
@@ -389,12 +460,24 @@ function R.Paint()
     return "ok"
 end
 
+--- Yards from the centre to the rim now: the totem radar's while unified with it, else the player's setting.
+function R.Yards()
+    return dockedYards or NAGDeathRadarSettings.yards
+end
+
 -- ============================ the frame ============================
 
 local function onUpdate(_, elapsed)
     sinceTick = sinceTick + (elapsed or 0)
     if sinceTick >= TICK then
         sinceTick = 0
+        local s = NAGDeathRadarSettings
+        if s.dock ~= "free" then -- the totem radar shown, hidden, resized or moved to the minimap, Rotate
+            -- Minimap switched: follow it
+            local target, onMinimap, scale = dockOn(s)
+            local up = onMinimap == true and not minimapTurns()
+            if target ~= docked or scale ~= dockedScale or up ~= northUp then R.Refresh(s); return end
+        end
         R.Paint()
         return
     end
@@ -415,9 +498,28 @@ local function savePosition()
 end
 
 local function placeFrame(s)
-    frame:SetScale(s.scale)
+    local target, onMinimap, scale, yards = dockOn(s)
+    docked, dockedScale, dockedYards = target, scale, yards
+    northUp = onMinimap == true and not minimapTurns()
+    baseAlpha = onMinimap and MINIMAP_ALPHA or 1
+    dimmed = nil -- the alpha is set again for the new base
     frame:ClearAllPoints()
-    frame:SetPoint("CENTER", UIParent, "CENTER", s.radarPos.x / s.scale, s.radarPos.y / s.scale)
+    if target then
+        -- A defined order (red review): one level over the target in its strata. On the totem radar that is over its
+        -- frame (field, rim, reach circles), level with its on-radar totem icons and under its dock (level + 2).
+        -- The radar stays mouse-off without Alt, so the target keeps its plain clicks and drag.
+        local okS, strata = pcall(target.GetFrameStrata, target)
+        local okL, level = pcall(target.GetFrameLevel, target)
+        if okS and type(strata) == "string" then frame:SetFrameStrata(strata) end
+        if okL and type(level) == "number" then frame:SetFrameLevel(level + 1) end
+        frame:SetScale(scale)
+        frame:SetPoint("CENTER", target, "CENTER", 0, 0)
+    else
+        frame:SetFrameStrata(FREE_STRATA)
+        frame:SetFrameLevel(R.freeLevel or 1)
+        frame:SetScale(s.scale)
+        frame:SetPoint("CENTER", UIParent, "CENTER", s.radarPos.x / s.scale, s.radarPos.y / s.scale)
+    end
 end
 
 --- The mouse only while Alt is held: clicks on the world under it go through. With Alt, a left-drag moves it
@@ -450,12 +552,19 @@ function R.ApplyLook(s)
     frame.art:SetTexture(MEDIA .. ring.file)
     frame.art:SetSize(artSize, artSize)
     frame.grid:SetTexture(MEDIA .. (GRIDS[s.grid] or GRIDS[1]))
-    frame.art:SetShown(s.art)
-    frame.grid:SetShown(s.art)
-    local edge = s.art and artSize * ring.outer or RADIUS + BORDER
+    local art = s.art and not docked -- docked, the ring is the minimap's or the totem radar's
+    local own = docked == nil or docked == _G.Minimap -- unified: the totem radar draws the rim and the field
+    frame.art:SetShown(art)
+    frame.grid:SetShown(art)
+    frame.rim:SetShown(own)
+    frame.field:SetShown(own)
+    frame.arrow:SetShown(not docked and not frame.note:IsShown())
+    local edge = art and artSize * ring.outer or RADIUS
     frame:SetSize(edge * 2, edge * 2)
-    local hot = s.art and (RADIUS + BORDER / 2) / HOT_INNER or (RADIUS + BORDER) / HOT_OUTER
+    local hot = art and (RADIUS + BORDER / 2) / HOT_INNER or RADIUS / HOT_OUTER
     frame.hot:SetSize(hot, hot)
+    -- Unified, no distance line: it would sit on the totem radar's dock icons (the pointer stays at the rim).
+    frame.dist:SetShown(not (docked and docked ~= _G.Minimap))
     frame.dist:ClearAllPoints()
     frame.dist:SetPoint("TOP", frame, "CENTER", 0, -edge - 2)
 end
@@ -470,7 +579,7 @@ local function showTooltip()
     GameTooltip:SetOwner(frame, "ANCHOR_TOP")
     GameTooltip:AddLine("NAG Death Radar")
     GameTooltip:AddLine(ns.StatusLine(), 1, 1, 1)
-    GameTooltip:AddLine("Right-click: settings", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: menu (minimap, totem radar, settings)", 1, 1, 1)
     GameTooltip:AddLine("Drag: move" .. (NAGDeathRadarSettings.locked and " (locked: /ndr lock)" or ""), 1, 1, 1)
     GameTooltip:Show()
 end
@@ -483,11 +592,12 @@ end
 --- Build the frame once.
 function R.Init()
     if frame then return end
-    local size = (RADIUS + BORDER) * 2
+    local size = RADIUS * 2
     frame = CreateFrame("Frame", "NAGDeathRadarFrame", UIParent)
     frame:Hide()
     frame:SetSize(size, size)
     frame:SetClampedToScreen(true)
+    R.freeLevel = frame:GetFrameLevel()
     frame:SetMovable(true)
     frame:RegisterForDrag("LeftButton")
     -- The radar's circle: the field and every blip are cut by it.
@@ -497,17 +607,20 @@ function R.Init()
         clip:SetPoint("CENTER", frame, "CENTER", 0, 0)
     end
     frame.clip = clip
-    -- The plain ring: a disc RADIUS + BORDER wide under the field, cut round by its own circle.
-    local rim = frame:CreateTexture(nil, "BACKGROUND", nil, 0)
-    rim:SetSize(size, size)
+    -- The plain rim (the totem radar's): the hot ring's band tinted black, its inner edge BORDER inside the
+    -- field's edge, the radar's circle cutting it at the edge. Over the field and the grid, under the art.
+    local rim = frame:CreateTexture(nil, "BACKGROUND", nil, 3)
+    local rimSize = (RADIUS - BORDER) / HOT_INNER
+    rim:SetSize(rimSize, rimSize)
     rim:SetPoint("CENTER", frame, "CENTER", 0, 0)
-    rim:SetColorTexture(RIM_COLOR[1], RIM_COLOR[2], RIM_COLOR[3], RIM_COLOR[4])
-    maskWith(rim, circleMask(frame, rim))
+    rim:SetTexture(MEDIA .. HOT_RING)
+    rim:SetVertexColor(RIM_COLOR[1], RIM_COLOR[2], RIM_COLOR[3], RIM_COLOR[4])
+    maskWith(rim, clip)
     frame.rim = rim
     local field = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
     field:SetSize(RADIUS * 2, RADIUS * 2)
     field:SetPoint("CENTER", frame, "CENTER", 0, 0)
-    field:SetColorTexture(0, 0, 0, 0.5)
+    field:SetColorTexture(0, 0, 0, FIELD_ALPHA)
     maskWith(field, clip)
     frame.field = field
     local grid = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
@@ -552,13 +665,13 @@ function R.Init()
     frame.dist = dist
 
     frame:SetScript("OnDragStart", function()
-        if NAGDeathRadarSettings.locked or not altDown() then return end
+        if NAGDeathRadarSettings.locked or docked or not altDown() then return end
         frame:StartMoving()
         R.dragging = true
     end)
     frame:SetScript("OnDragStop", stopDrag)
     frame:SetScript("OnMouseUp", function(_, button)
-        if button == "RightButton" and altDown() and not ns.InCombat() and ns.OpenPanel then ns.OpenPanel() end
+        if button == "RightButton" and altDown() and not ns.InCombat() then R.ShowMenu() end
     end)
     frame:SetScript("OnEnter", showTooltip)
     frame:SetScript("OnLeave", hideTooltip)
@@ -594,6 +707,39 @@ function R.Refresh(s)
         R.Paint()
     end
     R.UpdateMouse()
+end
+
+-- ============================ the menu ============================
+
+--- Alt + right-click: the radar's menu through the client's MenuUtil (every target client has the Menu API, see
+--- overlay.lua); the settings panel where it is missing or fails.
+function R.ShowMenu()
+    local MU, s = _G.MenuUtil, NAGDeathRadarSettings
+    local function dockTo(where)
+        return function()
+            s.dock = s.dock == where and "free" or where
+            ns.Apply()
+        end
+    end
+    local function toggle(key)
+        return function() s[key] = not s[key]; ns.Apply() end
+    end
+    local ok = type(MU) == "table" and type(MU.CreateContextMenu) == "function" and pcall(MU.CreateContextMenu, frame,
+        function(_, root)
+            root:CreateTitle("NAG Death Radar")
+            root:CreateCheckbox("Attach to the minimap", function() return s.dock == "minimap" end, dockTo("minimap"))
+            if s.dock == "totem" or totemFrame() then
+                root:CreateCheckbox("Unify with the totem radar (one ring)", function() return s.dock == "totem" end,
+                    dockTo("totem"))
+            end
+            root:CreateCheckbox("Ring and grid art", function() return s.art end, toggle("art"))
+            root:CreateCheckbox("Red rim inside a danger zone", function() return s.rimTint end, toggle("rimTint"))
+            root:CreateCheckbox("Lock in place", function() return s.locked end, toggle("locked"))
+            root:CreateButton("Settings...", function() if ns.OpenPanel then ns.OpenPanel() end end)
+            root:CreateButton("Hide (/ndr show brings it back)", function() s.radar = false; ns.Apply() end)
+        end)
+    if not ok and ns.OpenPanel then ns.OpenPanel() end
+    return ok
 end
 
 -- For the tests.
