@@ -14,8 +14,8 @@ levelling:
   `/ndr art on`). While you stand in a danger zone the rim turns red. Where there is no position (instances) or no
   data for the map, it dims and says so. **Alt + right-click** it for its menu: attach it to your minimap (it sits on
   the minimap at its size, half see-through, north up unless your minimap rotates), or, while NAG's totem radar is
-  shown, unify the two into one ring (the death radar keeps its own range, 100 yards to the rim by default; the totem
-  radar its 40);
+  shown, unify the two into one ring on one scale (the death radar then uses the totem radar's range, 40 yards to the
+  rim; free, on the minimap or while the totem radar is hidden, its own `/ndr range`, 100 yards by default);
 - a **perspective danger view** in front of the character (`/ndr mode perspective`), showing the map's red areas as
   quiet filled contours up to 180 yards ahead. It follows character heading, not the gameplay camera:
   this is an illustration, best with the camera behind your character, not a terrain-attached overlay.
@@ -60,7 +60,7 @@ other client shows "no data for this game" (or "no data yet" when no file is the
 | `/ndr preview [on\|off]` | clearly labelled synthetic test areas; does not change the live data file |
 | `/ndr lock [on\|off]` | lock the radar; unlocked, **Alt + drag** moves it (without Alt, clicks go through to the world) |
 | `/ndr minimap [on\|off]` | the circle radar on your minimap (also in its Alt + right-click menu) |
-| `/ndr unify [on\|off]` | the circle radar and NAG's totem radar as one ring, while the totem radar is shown (also in the menu) |
+| `/ndr unify [on\|off]` | the circle radar and NAG's totem radar as one ring on the totem radar's 40-yard scale, while the totem radar is shown (also in the menu) |
 | `/ndr ring 1\|2\|8\|10` | the ring art: 1 dark iron (default), 2 plain silver, 8 spiked dark, 10 cyan tech |
 | `/ndr grid 1\|2` | the grid art: 1 green (default), 2 blue |
 | `/ndr art [on\|off]` | the ring and grid art (off by default: the plain rim and field) |

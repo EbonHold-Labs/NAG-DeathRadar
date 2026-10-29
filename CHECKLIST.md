@@ -36,7 +36,8 @@ deaths with the server's `fine` field (200 per side): swap it in to see the map 
       size, half see-through, no arrow of its own, north up; with Interface > Rotate Minimap on, it turns with you.
       The minimap's own clicks still work (without Alt). Untick it: back where it was.
 - [ ] As a Shaman with the totem radar shown: the menu offers "Unify with the totem radar (one ring)". Ticked, one
-      ring shows (the totem radar's) with the death cells inside it; drag or resize the totem radar, or put it on
+      ring shows (the totem radar's) with the death cells inside it, on its 40-yard scale (a death cell 40 yd away
+      sits on the rim; free, the same cell sits at 40 % of the radius); drag or resize the totem radar, or put it on
       the minimap: the death radar follows. Hide the totem radar (`/nagtotem off`): the death radar stands on its
       own with its own ring; `/nagtotem on`: it joins again.
 - [ ] Without the client's context menu (no MenuUtil), Alt + right-click opens the settings panel instead.

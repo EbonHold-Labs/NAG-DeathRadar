@@ -26,7 +26,7 @@
 --- DOCKED (setting `dock`, the menu, /ndr minimap, /ndr unify): "minimap" sits on the minimap's centre at its size,
 --- half see-through, no arrow, north up unless the player's minimap rotates (as the totem radar's minimap mode);
 --- "totem" sits on NAG's totem radar frame at its size and leaves the ring to it (own rim, field and arrow hidden),
---- so the two read as one ring. The death radar keeps its own `yards` to the rim, the totem radar its own 40.
+--- so the two read as one ring, on one scale: the totem radar's yards to the rim (40), not the death radar's own.
 --- While the totem radar is missing or hidden a "totem" radar is drawn free, as usual.
 ---
 --- The geometry and the drawing helpers (ToPlane, ToScreen, circleMask, maskWith, placeAt, the build, the
@@ -109,9 +109,11 @@ local function minimapTurns()
 end
 
 --- What the radar sits on for the settings: the target frame (or nil: free), whether that is the minimap (itself or
---- the totem radar on it) and the scale that fits the radar's field to the target's width.
+--- the totem radar on it), the scale that fits the radar's field to the target's width, and the yards to the rim:
+--- unified, the totem radar's (owner, 2026-10-29: one scale in one ring; its module's YARDS, else 40), else nil.
+local TOTEM_YARDS = 40
 local function dockOn(s)
-    local target, onMinimap
+    local target, onMinimap, yards
     if s.dock == "minimap" and type(_G.Minimap) == "table" then
         target, onMinimap = _G.Minimap, true
     elseif s.dock == "totem" then
@@ -120,6 +122,8 @@ local function dockOn(s)
             target = f
             local ok, v = pcall(m.OnMinimap, m)
             onMinimap = ok and v == true
+            local y = m.YARDS
+            yards = type(y) == "number" and not isSecret(y) and y > 0 and y or TOTEM_YARDS
         end
     end
     if not target then return nil end
@@ -131,7 +135,7 @@ local function dockOn(s)
         and width > 0 and uiScale > 0 then
         scale = width * tScale / (RADIUS * 2 * uiScale)
     end
-    return target, onMinimap, scale
+    return target, onMinimap, scale, yards
 end
 R.DockOn = dockOn
 
@@ -301,6 +305,7 @@ local placedFacing    -- the facing the pieces were last placed for
 local rimHot          -- the rim's current tint
 local sinceTick = 0
 local dimmed              -- the alpha's last state (nil: set it again)
+local dockedYards         -- unified: the totem radar's yards to the rim (nil: the player's `yards`)
 local docked, dockedScale -- the frame the radar sits on (nil: free) and its fitted scale, as last applied
 local northUp             -- on a minimap that does not turn: the picture is north up
 local baseAlpha = 1       -- MINIMAP_ALPHA on the minimap, else 1
@@ -355,7 +360,7 @@ end
 --- the pointer held inside the rim.
 function R.Place(f)
     if not frame then return end
-    local scale = RADIUS / NAGDeathRadarSettings.yards
+    local scale = RADIUS / R.Yards()
     for i = 1, nBlips do
         local e = blips[i]
         placeAt(frame, e, R.ToPlane(e.dx, e.dy, f, scale))
@@ -400,8 +405,9 @@ function R.Paint()
     local cellW, cellH = W / GRID, H / GRID
     local cx = min(GRID - 1, max(0, floor(px * GRID)))
     local cy = min(GRID - 1, max(0, floor(py * GRID)))
-    local rx, ry = ceil(s.yards / cellW) + 1, ceil(s.yards / cellH) + 1
-    local reach = s.yards + sqrt(cellW * cellH) / 2
+    local yards = R.Yards()
+    local rx, ry = ceil(yards / cellW) + 1, ceil(yards / cellH) + 1
+    local reach = yards + sqrt(cellW * cellH) / 2
     local found = {}
     local y0, y1 = cy - ry, cy + ry
     for x = max(0, cx - rx), min(GRID - 1, cx + rx) do
@@ -418,7 +424,7 @@ function R.Paint()
     if #found > MAX_BLIPS then
         table.sort(found, function(a, b) return a[3] > b[3] end)
     end
-    local scale = RADIUS / s.yards
+    local scale = RADIUS / yards
     local size = max(BLIP_MIN, sqrt(cellW * cellH) * scale * 1.15)
     local n = min(#found, MAX_BLIPS)
     for i = n + 1, nBlips do blips[i].tex:Hide() end
@@ -448,6 +454,11 @@ function R.Paint()
     end
     R.Place(viewFacing())
     return "ok"
+end
+
+--- Yards from the centre to the rim now: the totem radar's while unified with it, else the player's setting.
+function R.Yards()
+    return dockedYards or NAGDeathRadarSettings.yards
 end
 
 -- ============================ the frame ============================
@@ -483,8 +494,8 @@ local function savePosition()
 end
 
 local function placeFrame(s)
-    local target, onMinimap, scale = dockOn(s)
-    docked, dockedScale = target, scale
+    local target, onMinimap, scale, yards = dockOn(s)
+    docked, dockedScale, dockedYards = target, scale, yards
     northUp = onMinimap == true and not minimapTurns()
     baseAlpha = onMinimap and MINIMAP_ALPHA or 1
     dimmed = nil -- the alpha is set again for the new base

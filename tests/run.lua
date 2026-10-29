@@ -1522,6 +1522,37 @@ test("radar: a steady docked radar does not Refresh each tick", function()
     _G.NAG, _G.Minimap, _G.GetCVar = nil, nil, nil
 end)
 
+test("radar: unified, the ring is the totem radar's 40 yd; free or with the totem radar hidden, the player's 100", function()
+    local ns = bootRadar()
+    local R = ns.Radar
+    local hx, hy = hottestIn(ns, ELWYNN)
+    standAt(ELWYNN, hx + 1, hy)
+    local totem = S.new(S.KINDS.FRAME); totem:SetSize(88, 88)
+    local module = { frame = totem, OnMinimap = function() return false end }
+    _G.NAG = { GetModule = function() return module end }
+    -- A death 40 yd straight ahead (north, facing north): its blip's offset from the centre.
+    local function at40()
+        eq(R.Paint(), "ok"); assert(R.BlipCount() > 0, "a blip")
+        local e = R.Blip(1)
+        e.dx, e.dy = 40, 0
+        R.Place(0)
+        return e.tex._point[5]
+    end
+    eq(NAGDeathRadarSettings.yards, 100)
+    near(at40(), R.RADIUS * 0.4, "free: 40 % of the radius", 1e-9)
+    SlashCmdList.NAGDEATHRADAR("unify")
+    eq(R.Yards(), 40, "the totem radar's range")
+    near(at40(), R.RADIUS, "unified: on the rim", 1e-9)
+    module.YARDS = 50; SlashCmdList.NAGDEATHRADAR("unify off"); SlashCmdList.NAGDEATHRADAR("unify")
+    eq(R.Yards(), 50, "its module's YARDS when exposed")
+    module.YARDS = nil; SlashCmdList.NAGDEATHRADAR("unify off"); SlashCmdList.NAGDEATHRADAR("unify")
+    totem:Hide(); S.frame(0.2)
+    eq(R.Yards(), 100, "totem radar hidden: the player's own")
+    near(at40(), R.RADIUS * 0.4, "hidden: 40 % again", 1e-9)
+    SlashCmdList.NAGDEATHRADAR("unify off")
+    _G.NAG = nil
+end)
+
 local RING_GEOMETRY = { [1] = { 0.314, 0.509 }, [2] = { 0.342, 0.457 }, [8] = { 0.284, 0.490 }, [10] = { 0.354, 0.495 } }
 
 local function artPath(t) return (t._texture or ""):match("[^\\]+$") end
