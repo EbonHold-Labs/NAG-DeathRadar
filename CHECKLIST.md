@@ -27,6 +27,21 @@ To try with data before the app drops the real file: copy `tests/fixtures/nagdea
 (1411) only, so try it on a character in one of those zones. `tests/fixtures/nagdeath_fine.lua` is the same
 deaths with the server's `fine` field (200 per side): swap it in to see the map draw the file's own fine cells.
 
+## 0b. Plain look, minimap and totem radar (Forever, 2026-10-29)
+
+- [ ] Fresh settings (or saved settings still on the old defaults): after `/reload` the circle radar shows, no
+      ornament, a thin dark rim over a see-through field, the same size as NAG's totem radar.
+- [ ] `/ndr art on`: the ornament ring and grid come back; `/ndr ring 8`, `/ndr grid 2` still work.
+- [ ] Alt + right-click the radar: the menu opens. "Attach to the minimap": the radar sits on the minimap at its
+      size, half see-through, no arrow of its own, north up; with Interface > Rotate Minimap on, it turns with you.
+      The minimap's own clicks still work (without Alt). Untick it: back where it was.
+- [ ] As a Shaman with the totem radar shown: the menu offers "Unify with the totem radar (one ring)". Ticked, one
+      ring shows (the totem radar's) with the death cells inside it; drag or resize the totem radar, or put it on
+      the minimap: the death radar follows. Hide the totem radar (`/nagtotem off`): the death radar stands on its
+      own with its own ring; `/nagtotem on`: it joins again.
+- [ ] Without the client's context menu (no MenuUtil), Alt + right-click opens the settings panel instead.
+- [ ] `/ndr minimap`, `/ndr unify` toggle the same; the choice survives `/reload`.
+
 ## 1. Load without NAG
 - [ ] With NAG disabled, the addon list shows "NAG Death Radar", not flagged out of date (on Forever the
       `_camelot` toc loads; on Classic Era, Anniversary, Titan and MoP Classic the main toc).

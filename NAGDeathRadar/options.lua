@@ -16,13 +16,14 @@ local BOXES = {
     { "overlay", "Heatmap on the world map" },
     { "locked", "Lock the circle (unlocked: Alt + drag moves it)" },
     { "rimTint", "Highlight when inside a danger area" },
-    { "art", "Circle mode: show ring and grid art" },
+    { "art", "Circle mode: ornament ring and grid art (off: the totem radar's plain look)" },
     { "worldAnchors", "Experimental camera projection (moves map pins)" },
 }
 -- Buttons that step through a setting's choices (no dropdown: its template differs between clients).
 local CYCLES = {
     { "ring", "Ring" },
     { "grid", "Grid", { [1] = "green", [2] = "blue" } },
+    { "dock", "Place", { free = "free", minimap = "minimap", totem = "totem radar" } },
 }
 local VIEW_MODES = { { "perspective", "Perspective" }, { "circle", "Radar" }, { "world", "World (test)" } }
 

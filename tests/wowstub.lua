@@ -210,6 +210,7 @@ function S.reset(opts)
         local old = t[name]
         t[name] = function(...) old(...); f(...) end
     end
+    _G.Minimap, _G.NAG, _G.GetCVar = nil, nil, nil -- tests that dock the radar set their own
     _G.InCombatLockdown = function() return S.player.combat end
     _G.GetPlayerFacing = function() return S.player.facing end
     _G.IsAltKeyDown = function() return S.player.alt end

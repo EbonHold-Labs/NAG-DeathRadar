@@ -13,18 +13,20 @@ local function boot(fixture)
     for _,name in ipairs({'core','options','overlay','radar','perspective-geometry'}) do
         assert(loadfile('NAGDeathRadar/'..name..'.lua'))('NAGDeathRadar',ns)
     end
+    NAGDeathRadarSettings={mode='perspective',lookVersion=1} -- these tests drive the perspective view
     S.fire('ADDON_LOADED','NAGDeathRadar')
     return ns
 end
 
-test('new perspective default preserves old settings and validates all layout ranges',function()
+test('circle default (owner 2026-10-29) preserves old settings and validates all layout ranges',function()
     local ns=boot()
     local s=ns.InitSettings({radar=false,ring=8,yards=150,custom='kept',reach=0,viewWidth=0,viewHeight=0,
         viewScale=1/0,viewX=0/0,viewY=1e20})
-    assert(s.mode=='perspective' and s.reach==180 and s.viewWidth==720 and s.viewHeight==160)
+    assert(s.mode=='circle' and s.reach==180 and s.viewWidth==720 and s.viewHeight==160)
     assert(s.viewScale==1 and s.viewX==0 and s.viewY==60)
     assert(s.radar==false and s.ring==8 and s.yards==150 and s.custom=='kept')
-    assert(ns.InitSettings({mode='bad'}).mode=='perspective')
+    assert(ns.InitSettings({mode='bad'}).mode=='circle')
+    assert(ns.InitSettings({mode='perspective',lookVersion=1}).mode=='perspective')
     assert(ns.InitSettings({mode='circle'}).mode=='circle')
 end)
 
