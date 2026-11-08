@@ -278,6 +278,19 @@ the file is one table literal and nothing else (`tools/lua_literal.py`, the NAG 
 file serves every client and only Forever collects, so the release carries Forever's data; the other clients
 show "no data for this game".
 
+Each release is also a GitHub release (Rakizi, 2026-11-08): the NAG app's opt-in installer reads
+`releases/latest` and installs its first `.zip` asset. It skips drafts and pre-releases, takes the version from
+the tag (`v0.4.0` = 0.4.0), and replaces only an older install. The zip must hold only `NAGDeathRadar/` (no
+links, nothing outside it) and unpack to under 8 MB. After the tag is pushed, build the zip from the tag and
+publish it:
+
+```
+git archive --format=zip -9 -o NAGDeathRadar-X.Y.Z.zip vX.Y.Z NAGDeathRadar
+gh release create vX.Y.Z NAGDeathRadar-X.Y.Z.zip --title "NAG Death Radar X.Y.Z" --notes-file notes.md
+```
+
+The notes are for players: a few plain lines on what they will see.
+
 ```lua
 NAGDeathData = {
   v = 1,                     -- the only version this addon reads
