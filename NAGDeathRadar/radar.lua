@@ -1,9 +1,13 @@
 --- NAG Death Radar: the radar. A round frame with the player at the centre, `yards` yards to the rim, THE FACING
 --- UP: the picture turns with the character and the arrow never does (with no facing to read it is north up).
---- The data cells around the player are round blips in the intensity colours (light blue, yellow, red), each at
---- its true spot and cut by the radar's circle. The nearest HOT cell (q / 100 at or above the `hot` setting) has a
---- marker at its spot, held at the rim when it lies past it, and its distance under the radar. While the player
---- stands in a hot cell the rim turns red (setting rimTint, on by default; no glow and no sound, relay 3459 Q1).
+--- The data cells around the player are drawn as they are: rectangles in the intensity colours (light blue,
+--- yellow, red), side by side at their true spots, turned with the facing and cut by the radar's circle, a
+--- miniature of the world map's grid. They come from the file's finest grid (`fine` when it has the map); where
+--- more than MAX_BLIPS could fall inside the rim (a small map, a long range), 2 x 2 cells fold into one, keeping
+--- the hottest, until they fit. The cell under the player and the hot cells always read the finest grid.
+--- The nearest HOT cell (q / 100 at or above the `hot` setting) has a marker at its spot, held at the rim when it
+--- lies past it, and its distance under the radar. While the player stands in a hot cell the rim turns red
+--- (setting rimTint, on by default; no glow and no sound, relay 3459 Q1).
 ---
 --- WHERE THINGS ARE. Everything is measured on the map the player stands on: the player's and the cells' map
 --- fractions, turned into yards by the map's size in yards, which is read through C_Map.GetWorldPosFromMapPos at
@@ -41,7 +45,7 @@
 
 local _, ns = ...
 
-local type, pairs, pcall, floor, ceil, sqrt = type, pairs, pcall, math.floor, math.ceil, math.sqrt
+local type, pairs, ipairs, pcall, floor, ceil, sqrt = type, pairs, ipairs, pcall, math.floor, math.ceil, math.sqrt
 local min, max = math.min, math.max
 
 local R = {}
@@ -52,12 +56,11 @@ local RADIUS = 44         -- pixels from the centre to the rim (the field): the 
 local BORDER = 3          -- the plain rim, pixels, just inside the field's edge (the totem radar's)
 local POINTER = 12        -- the nearest-hot marker, pixels
 local ARROW_SIZE = 14
-local BLIP_MIN = 4        -- the smallest blip, pixels
-local MAX_BLIPS = 80      -- blips at most; the hottest are kept
+local MAX_BLIPS = 200     -- cells drawn at most: the grid is coarsened until the rim holds no more; the hottest are kept
 local TICK = 0.1          -- seconds between two paints
 local MEDIA = "Interface\\AddOns\\NAGDeathRadar\\Media\\"
 local CIRCLE_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
-local DISC = CIRCLE_MASK  -- a white disc on transparent: tinted, a round blip
+local DISC = CIRCLE_MASK  -- a white disc on transparent: tinted, the nearest-hot marker
 local ARROW = "Interface\\Minimap\\MinimapArrow"
 -- Fonsas's rings (Media/frameN.png, 250 x 250), each as a share of the width. `hole`: the widest radius of the
 -- hole (alpha > 128, 72 rays out of the centre), so no gap shows between the field and the ring. `outer`: the
@@ -165,8 +168,39 @@ end
 
 --- Yards north and west from the player (map fractions px, py) to the middle of 0-based cell (ix, iy) on a map
 --- W x H yards. Map fractions grow east (x) and south (y).
-function R.CellVector(px, py, ix, iy, W, H)
-    return (py - ns.CellCentre(iy)) * H, (px - ns.CellCentre(ix)) * W
+function R.CellVector(px, py, ix, iy, W, H, grid)
+    return (py - ns.CellCentre(iy, grid)) * H, (px - ns.CellCentre(ix, grid)) * W
+end
+
+-- A cell's corners in SetVertexOffset's order (1 upper left, 2 lower left, 3 upper right, 4 lower right), as
+-- signs of (screen x, screen y) on a north-up picture.
+local CORNERS = { { -1, 1 }, { -1, -1 }, { 1, 1 }, { 1, -1 } }
+
+--- The four SetVertexOffset offsets (pixels, y up, in CORNERS' order) that turn a cell drawn cellW x cellH yards
+--- (east-west x north-south) at `scale` pixels per yard to the picture for facing `f`: each corner goes where
+--- R.ToPlane puts it, so the cell turns with the spots.
+function R.Corners(cellW, cellH, f, scale)
+    local out = {}
+    for k, c in ipairs(CORNERS) do
+        local x, y = R.ToPlane(c[2] * cellH / 2, -c[1] * cellW / 2, f, scale)
+        out[k] = { x - c[1] * cellW * scale / 2, y - c[2] * cellH * scale / 2 }
+    end
+    return out
+end
+
+--- The cells per side the picture draws for a map W x H yards whose finest grid has `grid` cells per side, at
+--- `yards` to the rim: the finest whole divisor of `grid` (each drawn cell folds whole source cells) at which no
+--- more than 90 % of `cap` cells could lie within the rim plus half a cell's diagonal. Counted by area, every cell
+--- full, so the choice holds as the player walks; the 10 % covers the few cells a lattice adds over the area.
+function R.DrawGrid(grid, W, H, yards, cap)
+    for n = grid, 2, -1 do
+        if grid % n == 0 then
+            local cw, ch = W / n, H / n
+            local reach = yards + sqrt(cw * cw + ch * ch) / 2
+            if min(n * n, math.pi * reach * reach / (cw * ch)) <= 0.9 * cap then return n end
+        end
+    end
+    return 1
 end
 
 --- The hot cells of a map's grid: every cell at or above the threshold (q / 100), as { ix, iy } pairs.
@@ -181,10 +215,10 @@ function R.HotCells(md, hot)
 end
 
 --- The nearest hot cell: its distance in yards and its vector (yards north, yards west), or nil.
-function R.NearestHot(list, px, py, W, H)
+function R.NearestHot(list, px, py, W, H, grid)
     local best, bx, by
     for i = 1, #list do
-        local dx, dy = R.CellVector(px, py, list[i][1], list[i][2], W, H)
+        local dx, dy = R.CellVector(px, py, list[i][1], list[i][2], W, H, grid)
         local d = dx * dx + dy * dy
         if not best or d < best then best, bx, by = d, dx, dy end
     end
@@ -300,10 +334,14 @@ end
 -- ============================ state ============================
 
 local frame
-local blips = {}      -- { tex, dx, dy, lastX, lastY, placed, size }
+local blips = {}      -- { tex, dx, dy, lastX, lastY, placed, w, h, offsets }
 local nBlips = 0      -- blips in use this paint
 local pointer         -- { tex, dx, dy, ... } the nearest hot cell
 local hotList, hotKey -- the current map's hot cells and what they were built for
+local hotSrc          -- the grid they were built from
+local nearest         -- { px, py, W, H, d, hx, hy } the nearest hot cell, for the position it was found from
+local drawn = {}      -- the grid the picture last drew: { src, n, grid }
+local corners         -- { f, cellW, cellH, scale, offsets } the blips' corner offsets were last built for
 local facing = 0      -- the last plain facing
 local placedFacing    -- the facing the pieces were last placed for
 local rimHot          -- the rim's current tint
@@ -360,14 +398,23 @@ local function viewFacing()
     return facing
 end
 
---- Put every piece where it is for a player facing `f`: the blips at their true spots (the circle cuts them),
---- the pointer held inside the rim.
+--- Put every piece where it is for a player facing `f`: the blips at their true spots, turned with it (the
+--- circle cuts them), the pointer held inside the rim.
 function R.Place(f)
     if not frame then return end
     local scale = RADIUS / R.Yards()
+    local c = corners
+    if nBlips > 0 and c and (c.f ~= f or c.scale ~= scale) then
+        c.f, c.scale = f, scale
+        c.offsets = R.Corners(c.cellW, c.cellH, f, scale)
+    end
     for i = 1, nBlips do
         local e = blips[i]
         placeAt(frame, e, R.ToPlane(e.dx, e.dy, f, scale))
+        if c and e.offsets ~= c.offsets and type(e.tex.SetVertexOffset) == "function" then
+            e.offsets = c.offsets
+            for k = 1, 4 do e.tex:SetVertexOffset(k, c.offsets[k][1], c.offsets[k][2]) end
+        end
     end
     if pointer and pointer.dx then
         placeAt(frame, pointer, R.ToScreen(pointer.dx, pointer.dy, f, scale))
@@ -379,7 +426,10 @@ local function blipAt(i)
     local e = blips[i]
     if not e then
         local t = frame:CreateTexture(nil, "ARTWORK")
-        t:SetTexture(DISC)
+        t:SetColorTexture(1, 1, 1, 1) -- white, tinted by SetVertexColor
+        -- Snapping off, as the map's squares: neighbouring cells share their edges.
+        if type(t.SetSnapToPixelGrid) == "function" then t:SetSnapToPixelGrid(false) end
+        if type(t.SetTexelSnappingBias) == "function" then t:SetTexelSnappingBias(0) end
         maskWith(t, frame.clip)
         e = { tex = t }
         blips[i] = e
@@ -395,31 +445,38 @@ function R.Paint()
     if not ns.data then local why = ns.NoDataText(); note(why); return why end
     local state, map, px, py = mapRead()
     if state ~= "plain" then note(NO_POSITION, true); return NO_POSITION end
-    local md = ns.MapData(map)
-    if not md then note(ns.NO_MAP_DATA, true); return ns.NO_MAP_DATA end
+    local src, N = ns.RadarGrid(map)
+    if not src then note(ns.NO_MAP_DATA, true); return ns.NO_MAP_DATA end
     local W, H = mapYards(map)
     if not W then note(NO_POSITION, true); return NO_POSITION end
     note(nil)
-    local GRID = ns.GRID
-    local ix, iy = ns.CellIndex(px), ns.CellIndex(py)
-    local here = ix and iy and ns.Q(md, ix, iy) or 0
+    local ix, iy = ns.CellIndex(px, N), ns.CellIndex(py, N)
+    local here = ix and iy and ns.Q(src, ix, iy) or 0
     setRim(s.rimTint and here / 100 >= s.hot)
 
-    -- The cells within the rim: a window of cells around the player's, then the circle.
+    -- The picture's grid: the finest that fits MAX_BLIPS cells inside the rim, folded from `src`.
+    local yards = R.Yards()
+    local GRID = R.DrawGrid(N, W, H, yards, MAX_BLIPS)
+    if drawn.src ~= src or drawn.n ~= GRID then
+        drawn.src, drawn.n = src, GRID
+        drawn.grid = GRID == N and src or ns.FoldToGrid(src, N, GRID)
+    end
+    local md = drawn.grid
+    -- The cells within the rim: a window of cells around the player's, then the circle (a cell whose centre is
+    -- within half its diagonal of the rim can show a corner inside it).
     local cellW, cellH = W / GRID, H / GRID
     local cx = min(GRID - 1, max(0, floor(px * GRID)))
     local cy = min(GRID - 1, max(0, floor(py * GRID)))
-    local yards = R.Yards()
-    local rx, ry = ceil(yards / cellW) + 1, ceil(yards / cellH) + 1
-    local reach = yards + sqrt(cellW * cellH) / 2
+    local reach = yards + sqrt(cellW * cellW + cellH * cellH) / 2
+    local rx, ry = ceil(reach / cellW) + 1, ceil(reach / cellH) + 1
     local found = {}
     local y0, y1 = cy - ry, cy + ry
     for x = max(0, cx - rx), min(GRID - 1, cx + rx) do
         local col = md[x]
         if col then
-            for y, q in pairs(col) do -- a column's cells, not its 100 rows: a small map's window is the whole grid
+            for y, q in pairs(col) do -- a column's cells, not its rows: a small map's window is the whole grid
                 if y >= y0 and y <= y1 and q / 100 >= s.thrLow then
-                    local dx, dy = R.CellVector(px, py, x, y, W, H)
+                    local dx, dy = R.CellVector(px, py, x, y, W, H, GRID)
                     if dx * dx + dy * dy <= reach * reach then found[#found + 1] = { dx, dy, q } end
                 end
             end
@@ -429,13 +486,16 @@ function R.Paint()
         table.sort(found, function(a, b) return a[3] > b[3] end)
     end
     local scale = RADIUS / yards
-    local size = max(BLIP_MIN, sqrt(cellW * cellH) * scale * 1.15)
+    local w, h = cellW * scale, cellH * scale
+    if not corners or corners.cellW ~= cellW or corners.cellH ~= cellH then
+        corners = { cellW = cellW, cellH = cellH } -- R.Place builds its offsets for the facing
+    end
     local n = min(#found, MAX_BLIPS)
     for i = n + 1, nBlips do blips[i].tex:Hide() end
     for i = 1, n do
         local e, c = blipAt(i), found[i]
         e.dx, e.dy = c[1], c[2]
-        if e.size ~= size then e.size = size; e.tex:SetSize(size, size) end
+        if e.w ~= w or e.h ~= h then e.w, e.h = w, h; e.tex:SetSize(w, h) end
         local r, g, b, a = ns.Color(c[3] / 100, s)
         e.tex:SetVertexColor(r, g, b, a)
         e.tex:Show()
@@ -444,8 +504,13 @@ function R.Paint()
 
     -- The nearest hot cell, at the rim when it is past it.
     local key = map .. ":" .. s.hot
-    if hotKey ~= key then hotKey, hotList = key, R.HotCells(md, s.hot) end
-    local d, hx, hy = R.NearestHot(hotList, px, py, W, H)
+    if hotKey ~= key or hotSrc ~= src then hotKey, hotSrc, hotList, nearest = key, src, R.HotCells(src, s.hot), nil end
+    -- The scan of every hot cell runs again only when the player moves on (or the list or the map size changes).
+    if not nearest or nearest.px ~= px or nearest.py ~= py or nearest.W ~= W or nearest.H ~= H then
+        nearest = { px = px, py = py, W = W, H = H }
+        nearest.d, nearest.hx, nearest.hy = R.NearestHot(hotList, px, py, W, H, N)
+    end
+    local d, hx, hy = nearest.d, nearest.hx, nearest.hy
     if d then
         pointer.dx, pointer.dy = hx, hy
         pointer.tex:Show()

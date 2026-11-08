@@ -187,9 +187,8 @@ end
 --- The grid the map draws for a uiMapID and its cells per side: the file's `fine` cells for the map, else its
 --- 100 grid upsampled to FINE_GRID. nil without data for the map.
 function O.Source(map, s)
-    local d = ns.data
-    local fine = d and d.fine and type(map) == "number" and d.fine.map[map]
-    if fine then return fine, d.fine.grid end
+    local fine, grid = ns.FineGrid(map)
+    if fine then return fine, grid end
     local md = ns.MapData(map)
     if not md then return nil end
     local key = exact(s.hot) .. ":" .. exact(s.thrMid) .. ":" .. exact(s.thrLow)
