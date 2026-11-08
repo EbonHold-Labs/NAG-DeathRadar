@@ -189,17 +189,18 @@ function R.Corners(cellW, cellH, f, scale)
 end
 
 --- The cells per side the picture draws for a map W x H yards whose finest grid has `grid` cells per side, at
---- `yards` to the rim: the finest one, halved while more than `cap` cells could lie within the rim plus half a
---- cell's diagonal (counted by area, every cell full, so the choice never changes as the player walks).
+--- `yards` to the rim: the finest whole divisor of `grid` (each drawn cell folds whole source cells) at which no
+--- more than 90 % of `cap` cells could lie within the rim plus half a cell's diagonal. Counted by area, every cell
+--- full, so the choice holds as the player walks; the 10 % covers the few cells a lattice adds over the area.
 function R.DrawGrid(grid, W, H, yards, cap)
-    local n = grid
-    while n % 2 == 0 do
-        local cw, ch = W / n, H / n
-        local reach = yards + sqrt(cw * cw + ch * ch) / 2
-        if min(n * n, math.pi * reach * reach / (cw * ch)) <= cap then break end
-        n = n / 2
+    for n = grid, 2, -1 do
+        if grid % n == 0 then
+            local cw, ch = W / n, H / n
+            local reach = yards + sqrt(cw * cw + ch * ch) / 2
+            if min(n * n, math.pi * reach * reach / (cw * ch)) <= 0.9 * cap then return n end
+        end
     end
-    return n
+    return 1
 end
 
 --- The hot cells of a map's grid: every cell at or above the threshold (q / 100), as { ix, iy } pairs.
@@ -338,6 +339,7 @@ local nBlips = 0      -- blips in use this paint
 local pointer         -- { tex, dx, dy, ... } the nearest hot cell
 local hotList, hotKey -- the current map's hot cells and what they were built for
 local hotSrc          -- the grid they were built from
+local nearest         -- { px, py, W, H, d, hx, hy } the nearest hot cell, for the position it was found from
 local drawn = {}      -- the grid the picture last drew: { src, n, grid }
 local corners         -- { f, cellW, cellH, scale, offsets } the blips' corner offsets were last built for
 local facing = 0      -- the last plain facing
@@ -409,7 +411,7 @@ function R.Place(f)
     for i = 1, nBlips do
         local e = blips[i]
         placeAt(frame, e, R.ToPlane(e.dx, e.dy, f, scale))
-        if e.offsets ~= c.offsets and type(e.tex.SetVertexOffset) == "function" then
+        if c and e.offsets ~= c.offsets and type(e.tex.SetVertexOffset) == "function" then
             e.offsets = c.offsets
             for k = 1, 4 do e.tex:SetVertexOffset(k, c.offsets[k][1], c.offsets[k][2]) end
         end
@@ -465,8 +467,8 @@ function R.Paint()
     local cellW, cellH = W / GRID, H / GRID
     local cx = min(GRID - 1, max(0, floor(px * GRID)))
     local cy = min(GRID - 1, max(0, floor(py * GRID)))
-    local rx, ry = ceil(yards / cellW) + 1, ceil(yards / cellH) + 1
     local reach = yards + sqrt(cellW * cellW + cellH * cellH) / 2
+    local rx, ry = ceil(reach / cellW) + 1, ceil(reach / cellH) + 1
     local found = {}
     local y0, y1 = cy - ry, cy + ry
     for x = max(0, cx - rx), min(GRID - 1, cx + rx) do
@@ -502,8 +504,13 @@ function R.Paint()
 
     -- The nearest hot cell, at the rim when it is past it.
     local key = map .. ":" .. s.hot
-    if hotKey ~= key or hotSrc ~= src then hotKey, hotSrc, hotList = key, src, R.HotCells(src, s.hot) end
-    local d, hx, hy = R.NearestHot(hotList, px, py, W, H, N)
+    if hotKey ~= key or hotSrc ~= src then hotKey, hotSrc, hotList, nearest = key, src, R.HotCells(src, s.hot), nil end
+    -- The scan of every hot cell runs again only when the player moves on (or the list or the map size changes).
+    if not nearest or nearest.px ~= px or nearest.py ~= py or nearest.W ~= W or nearest.H ~= H then
+        nearest = { px = px, py = py, W = W, H = H }
+        nearest.d, nearest.hx, nearest.hy = R.NearestHot(hotList, px, py, W, H, N)
+    end
+    local d, hx, hy = nearest.d, nearest.hx, nearest.hy
     if d then
         pointer.dx, pointer.dy = hx, hy
         pointer.tex:Show()

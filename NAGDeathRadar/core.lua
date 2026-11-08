@@ -388,12 +388,18 @@ function ns.MapData(map)
     return d.fine and d.fine.coarse[map] or d.map[map]
 end
 
---- The finest grid the file has for a uiMapID and its cells per side, or nil: the `fine` cells for the map (the
---- ones the world map draws), else `map` at ns.GRID. The radar's hot cells and its picture start from it.
-function ns.RadarGrid(map)
+--- The file's `fine` cells for a uiMapID and their cells per side, or nil: what the world map draws when it has them.
+function ns.FineGrid(map)
     local d = ns.data
     local fine = d and d.fine and type(map) == "number" and d.fine.map[map]
     if fine then return fine, d.fine.grid end
+end
+
+--- The finest grid the file has for a uiMapID and its cells per side, or nil: the `fine` cells for the map (the
+--- ones the world map draws), else `map` at ns.GRID. The radar's hot cells and its picture start from it.
+function ns.RadarGrid(map)
+    local fine, grid = ns.FineGrid(map)
+    if fine then return fine, grid end
     local md = ns.MapData(map)
     if md then return md, ns.GRID end
 end

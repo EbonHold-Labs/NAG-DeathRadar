@@ -1613,10 +1613,20 @@ local function fullFine(maps, base, hot)
     return { v = 1, cellBase = 0, map = coarse, fine = f }
 end
 
+-- A city-sized map (1000 x 667 yd) and a tall one (1000 x 3000 yd: its cells 3 x as tall as wide), on DUROTAR's
+-- and NO_DATA_MAP's ids.
+local W_CITY, H_CITY, W_TALL, H_TALL = 1000, 667, 1000, 3000
+-- A map where the area count says 200 cells fit at 225 yd on the 100 grid and the lattice holds 201 (the player at
+-- 0.3774, 0.6148): MAX_BLIPS only holds with headroom over the area count.
+local LATTICE, W_LATTICE, H_LATTICE = 1440, 1862, 5441
+
 local function bootFull(hot)
-    local ns = boot(fullFine({ BARRENS, ELWYNN }, 5, hot or {}))
+    local ns = boot(fullFine({ BARRENS, ELWYNN, DUROTAR, NO_DATA_MAP, LATTICE }, 5, hot or {}))
     S.worldBounds[BARRENS] = { 0, 0, -H_BARRENS, -W_BARRENS }
     S.worldBounds[ELWYNN] = ELWYNN_BOUNDS
+    S.worldBounds[DUROTAR] = { 0, 0, -H_CITY, -W_CITY }
+    S.worldBounds[NO_DATA_MAP] = { 0, 0, -H_TALL, -W_TALL }
+    S.worldBounds[LATTICE] = { 0, 0, -H_LATTICE, -W_LATTICE }
     return ns
 end
 
@@ -1714,6 +1724,12 @@ test("radar: the cell under the player and the nearest hot cell read the fine gr
     local p = R.Pointer()
     near(p.dx, dn, "the hot fine cell, north", 1e-6); near(p.dy, dw, "west", 1e-6)
     eq(ns.RadarFrame.dist:GetText(), ("danger %d yd"):format(math.floor(math.sqrt(dn * dn + dw * dw) + 0.5)))
+    -- Walk 10 fine cells north: the marker and the distance follow.
+    standFine(BARRENS, 100, 70, 0)
+    eq(R.Paint(), "ok")
+    dn = (70.5 - 81.5) / 200 * H_BARRENS
+    near(R.Pointer().dx, dn, "after a walk, north", 1e-6)
+    eq(ns.RadarFrame.dist:GetText(), ("danger %d yd"):format(math.floor(math.sqrt(dn * dn + dw * dw) + 0.5)))
     standFine(BARRENS, 101, 81, 0)
     eq(R.Paint(), "ok")
     eq(R.RimHot(), true, "on the hot fine cell")
@@ -1737,6 +1753,51 @@ test("radar: at a long range the cells fold until the rim holds MAX_BLIPS at mos
         assert(#blips <= R.MAX_BLIPS, "map " .. map .. ": " .. #blips .. " cells")
         near(blips[1].tex._w, W / n * scale, "map " .. map .. ": a folded cell's width", 1e-6)
         near(blips[1].tex._h, H / n * scale, "map " .. map .. ": height", 1e-6)
+    end
+end)
+
+test("radar: a city at 300 yd, tall cells and a lattice past the area count draw every cell in reach, none dropped", function()
+    local ns = bootFull()
+    local R = ns.Radar
+    -- City at 300 yd: 25 per side still holds ~309 cells in reach; 20 holds ~205, 10 holds ~61. Tall at 100 yd:
+    -- 100 per side, cells 10 x 30 yd, the player 0.04 of a cell from its west edge, so the west cell 12 columns
+    -- away (centre 115.4 yd) reaches the rim (100 + half its 31.6 yd diagonal) past a window of yards / cellW + 1.
+    for _, case in ipairs({ { DUROTAR, W_CITY, H_CITY, 300, 10, 0.5025 }, { NO_DATA_MAP, W_TALL, H_TALL, 100, 100, 0.5004 },
+        { LATTICE, W_LATTICE, H_LATTICE, 225, 50, 0.3774, 0.6148 } }) do
+        local map, W, H, yards, wantN, px, py = case[1], case[2], case[3], case[4], case[5], case[6], case[7]
+        SlashCmdList.NAGDEATHRADAR("range " .. yards)
+        local n = R.DrawGrid(200, W, H, yards, R.MAX_BLIPS)
+        eq(n, wantN, "map " .. map .. ": the finest whole divisor of 200 that fits")
+        standFine(map, 100, 80, 0)
+        S.player.x = px
+        S.player.y = py or S.player.y
+        eq(R.Paint(), "ok")
+        local blips = shownBlips(R)
+        local want = cellsInReach(n, W, H, yards, S.player.x, S.player.y)
+        eq(#blips, want, ("map %d at %d yd, %d cells per side: every cell in reach"):format(map, yards, n))
+        assert(want <= R.MAX_BLIPS, "map " .. map .. ": " .. want .. " cells fit")
+    end
+end)
+
+test("radar: across ranges and spots on four maps every cell in reach is drawn and never more than MAX_BLIPS", function()
+    local ns = bootFull()
+    local R = ns.Radar
+    local maps = { { BARRENS, W_BARRENS, H_BARRENS }, { ELWYNN, W_ELWYNN, H_ELWYNN }, { DUROTAR, W_CITY, H_CITY },
+        { NO_DATA_MAP, W_TALL, H_TALL } }
+    for _, m in ipairs(maps) do
+        for yards = 30, 300, 15 do
+            SlashCmdList.NAGDEATHRADAR("range " .. yards)
+            local n = R.DrawGrid(200, m[2], m[3], yards, R.MAX_BLIPS)
+            for _, spot in ipairs({ { 0.5, 0.5 }, { 0.5004, 0.4025 }, { 0.5137, 0.4919 }, { 0.4991, 0.5083 } }) do
+                S.player.map, S.player.x, S.player.y, S.player.facing = m[1], spot[1], spot[2], 0
+                eq(R.Paint(), "ok")
+                local got, want = #shownBlips(R), cellsInReach(n, m[2], m[3], yards, spot[1], spot[2])
+                if got ~= want or got > R.MAX_BLIPS then
+                    error(("map %d at %d yd (%d per side), spot %.4f,%.4f: drew %d, %d in reach"):format(m[1], yards,
+                        n, spot[1], spot[2], got, want))
+                end
+            end
+        end
     end
 end)
 
