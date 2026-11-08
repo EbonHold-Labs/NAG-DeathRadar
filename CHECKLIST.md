@@ -107,7 +107,11 @@ deaths with the server's `fine` field (200 per side): swap it in to see the map 
       `/ndr art on` brings them back. The red rim tint shows in both.
 - [ ] Turn in place: the picture turns, the arrow in the middle never does; what is ahead of the
       character is at the top.
-- [ ] The cells are round blips (light blue, yellow, red), cut at the radar's circle.
+- [ ] The cells are rectangles (light blue, yellow, red) laid side by side like the world map's squares, cut at
+      the radar's circle; turning in place turns them with the picture. On the Barrens at 100 yd they are the
+      map's fine cells (about 23 x 15 px), not a few big round dots piled over each other.
+- [ ] `/ndr range 300` on the Barrens and in a small zone (Elwynn): the cells grow (folded 2 x 2) but still lie
+      side by side with no gaps inside the circle.
 - [ ] Walk away from a red spot past 100 yd: the red marker sits on the rim, pointing at it; the line
       under the radar says "danger N yd" and N grows as you walk away. Walk back: the marker leaves the
       rim when the spot comes within range.

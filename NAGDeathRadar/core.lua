@@ -199,15 +199,17 @@ function ns.DecodeFineMap(list, grid, base, levels)
     return out, n
 end
 
---- A 0-based grid of `from` cells per side folded to the 0-based ns.GRID grid, keeping each cell's highest q.
-function ns.FoldToGrid(src, from)
+--- A 0-based grid of `from` cells per side folded to a 0-based grid of `to` (ns.GRID when nil; `from` a whole
+--- multiple of it), keeping each cell's highest q.
+function ns.FoldToGrid(src, from, to)
+    to = to or ns.GRID
     local out = {}
     for jx, col in pairs(src) do
-        local ix = floor(jx * ns.GRID / from)
+        local ix = floor(jx * to / from)
         local o = out[ix]
         if not o then o = {}; out[ix] = o end
         for jy, q in pairs(col) do
-            local iy = floor(jy * ns.GRID / from)
+            local iy = floor(jy * to / from)
             if (o[iy] or 0) < q then o[iy] = q end
         end
     end
@@ -386,18 +388,30 @@ function ns.MapData(map)
     return d.fine and d.fine.coarse[map] or d.map[map]
 end
 
---- A map position 0..1 -> its 0-based cell 0..99, exactly as the server bins a death: the addon stores
---- floor(p * 10000 + 0.5) and the server takes n * 100 // 10001 (AnalyticsServer/deaths.py). Off the map: nil.
-function ns.CellIndex(p)
-    if not isNum(p) or p < 0 or p > 1 then return nil end
-    local n = floor(p * 10000 + 0.5)
-    local c = floor(n * ns.GRID / 10001)
-    return c < ns.GRID and c or ns.GRID - 1
+--- The finest grid the file has for a uiMapID and its cells per side, or nil: the `fine` cells for the map (the
+--- ones the world map draws), else `map` at ns.GRID. The radar's hot cells and its picture start from it.
+function ns.RadarGrid(map)
+    local d = ns.data
+    local fine = d and d.fine and type(map) == "number" and d.fine.map[map]
+    if fine then return fine, d.fine.grid end
+    local md = ns.MapData(map)
+    if md then return md, ns.GRID end
 end
 
---- The middle of a 0-based cell as a map fraction.
-function ns.CellCentre(i)
-    return (i + 0.5) / ns.GRID
+--- A map position 0..1 -> its 0-based cell 0..grid - 1 (grid: cells per side, ns.GRID when nil), exactly as the
+--- server bins a death: the addon stores floor(p * 10000 + 0.5) and the server takes n * 100 // 10001
+--- (AnalyticsServer/deaths.py); a finer grid the same way, so its cell folds into the 100 cell. Off the map: nil.
+function ns.CellIndex(p, grid)
+    grid = grid or ns.GRID
+    if not isNum(p) or p < 0 or p > 1 then return nil end
+    local n = floor(p * 10000 + 0.5)
+    local c = floor(n * grid / 10001)
+    return c < grid and c or grid - 1
+end
+
+--- The middle of a 0-based cell as a map fraction, on a grid of `grid` cells per side (ns.GRID when nil).
+function ns.CellCentre(i, grid)
+    return (i + 0.5) / (grid or ns.GRID)
 end
 
 function ns.Q(mapData, ix, iy)
