@@ -647,6 +647,13 @@ local function initModules()
     end
 end
 
+local function login() -- each Init and BuildPanel runs once
+    loggedIn = true
+    initModules()
+    if ns.BuildPanel then ns.BuildPanel() end
+    ns.Apply()
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
@@ -654,14 +661,14 @@ ev:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
         NAGDeathRadarSettings = ns.InitSettings(NAGDeathRadarSettings)
         ns.data, ns.dataReason = ns.LoadData(_G.NAGDeathData)
+        -- Loaded after login (LoadAddOn from another addon, e.g. the NAG app's welcome on a load-on-demand copy):
+        -- PLAYER_LOGIN has already fired and will not come again, so start now.
+        if IsLoggedIn() then login() end
     elseif event == "ADDON_LOADED" and arg1 == "Blizzard_WorldMap" and loggedIn then
         initModules() -- each Init runs once; the overlay's waits for the world map
         ns.Apply()
     elseif event == "PLAYER_LOGIN" then
-        loggedIn = true
-        initModules()
-        if ns.BuildPanel then ns.BuildPanel() end
-        ns.Apply()
+        login()
     end
 end)
 
