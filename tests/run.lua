@@ -2322,5 +2322,32 @@ test("probe v3: runtime enum and plain waypoint coordinates are reported without
     end)
 end)
 
+-- ============================ a load after login ============================
+
+-- The NAG app's welcome loads the radar with LoadAddOn after login on a load-on-demand copy: PLAYER_LOGIN has gone,
+-- so ADDON_LOADED alone must start it, the same as a login boot; a later PLAYER_LOGIN must not start it twice.
+test("a LoadAddOn after login starts the radar at its ADDON_LOADED, once", function()
+    local function load(opts)
+        S.reset(opts)
+        local ns = {}
+        for _, f in ipairs(FILES) do
+            if f == DATA_FILE then assert(loadfile(FIXTURES .. "nagdeath_base0.lua"))()
+            else assert(loadfile(ADDON .. f))("NAGDeathRadar", ns) end
+        end
+        S.fire("ADDON_LOADED", "NAGDeathRadar")
+        return ns
+    end
+    boot("nagdeath_base0.lua", { perspective = true })
+    local panels, updates = #S.panels, S.liveUpdates()
+    assert(panels > 0 and updates > 0, "PREMISE: a login boot builds the panel and runs an OnUpdate")
+    load({ loggedIn = false })
+    eq(#S.panels, 0, "CONTROL: before login, ADDON_LOADED alone waits for PLAYER_LOGIN")
+    load({ loggedIn = true })
+    eq(#S.panels, panels, "after login: the panel, as a login boot")
+    eq(S.liveUpdates(), updates, "after login: the view runs, as a login boot")
+    S.fire("PLAYER_LOGIN")
+    eq(#S.panels, panels, "a PLAYER_LOGIN after that builds nothing twice")
+end)
+
 out(("%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

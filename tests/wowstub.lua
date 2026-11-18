@@ -165,6 +165,9 @@ function S.reset(opts)
     S.minScale, S.maxScale = 0.5, 2 -- the open map's zoom scales; equal on a map that cannot zoom
     S.player = { map = nil, x = nil, y = nil, facing = 0, alt = false, combat = false }
     S.keys, S.bindings, S.keyboardFocus = {}, {}, nil
+    -- the client's IsLoggedIn: false until PLAYER_LOGIN (S.fire sets it); opts.loggedIn: a load after login
+    S.loggedIn = opts.loggedIn == true
+    _G.IsLoggedIn = function() return S.loggedIn end
     _G.NAGDeathRadar_SetDetail = nil
     _G.GetBindingKey = function(action) return unpack(S.bindings[action] or {}) end
     _G.IsKeyDown = function(key) return S.keys[key] == true end
@@ -294,6 +297,7 @@ function S.reset(opts)
 end
 
 function S.fire(event, ...)
+    if event == "PLAYER_LOGIN" then S.loggedIn = true end
     for _, f in ipairs(S.events[event] or {}) do f._scripts.OnEvent(f, event, ...) end
 end
 
